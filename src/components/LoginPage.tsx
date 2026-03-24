@@ -10,34 +10,37 @@ import {
   Landmark,
   ArrowRight,
   AlertCircle,
+  Shield,
 } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Navigate } from "react-router-dom";
 import heroImg from "../assets/hero.png";
-
-const DEMO_EMAIL = "admin@folat.com";
-const DEMO_PASSWORD = "admin123";
+import { useAuth, DEMO_USERS } from "../auth/AuthContext";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const { login, isAuthenticated } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [error, setError] = useState("");
 
+  // Redirect if already logged in
+  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (email === DEMO_EMAIL && password === DEMO_PASSWORD) {
+    if (login(email, password)) {
       navigate("/dashboard");
     } else {
-      setError("Invalid email or password. Use the demo credentials below.");
+      setError("Invalid email or password. Use a demo account below.");
     }
   };
 
-  const fillDemo = () => {
-    setEmail(DEMO_EMAIL);
-    setPassword(DEMO_PASSWORD);
+  const fillDemo = (demoEmail: string, demoPassword: string) => {
+    setEmail(demoEmail);
+    setPassword(demoPassword);
     setError("");
   };
 
@@ -111,22 +114,28 @@ export default function LoginPage() {
                 </p>
               </div>
 
-              {/* Demo credentials banner */}
+              {/* Demo accounts panel */}
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                <p className="text-sm font-medium text-green-800 mb-1">Demo Credentials</p>
-                <p className="text-xs text-green-700">
-                  Email: <span className="font-mono font-semibold">{DEMO_EMAIL}</span>
+                <p className="text-sm font-medium text-green-800 mb-2 flex items-center gap-1.5">
+                  <Shield className="w-4 h-4" /> Demo Accounts — Click to auto-fill
                 </p>
-                <p className="text-xs text-green-700">
-                  Password: <span className="font-mono font-semibold">{DEMO_PASSWORD}</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={fillDemo}
-                  className="mt-2 text-xs font-semibold text-green-700 hover:text-green-900 underline underline-offset-2 transition-colors"
-                >
-                  Auto-fill demo credentials
-                </button>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {DEMO_USERS.map((d) => (
+                    <button
+                      key={d.email}
+                      type="button"
+                      onClick={() => fillDemo(d.email, d.password)}
+                      className={`text-left px-3 py-2 rounded-lg border transition-colors text-xs ${
+                        email === d.email
+                          ? "border-green-500 bg-green-100"
+                          : "border-green-200 hover:bg-green-100/70"
+                      }`}
+                    >
+                      <p className="font-semibold text-green-900">{d.user.roleLabel}</p>
+                      <p className="text-green-700 font-mono">{d.email}</p>
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Error message */}

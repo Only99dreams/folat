@@ -115,18 +115,18 @@ function StatCard({
   positive?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-start gap-4">
+    <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-start gap-3 overflow-hidden">
       <div className={`w-10 h-10 rounded-lg ${iconBg} flex items-center justify-center flex-shrink-0`}>
         <Icon className={`w-5 h-5 ${iconColor}`} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold truncate">
             {label}
           </p>
           {change && (
             <span
-              className={`text-[10px] font-semibold ${
+              className={`text-[10px] font-semibold whitespace-nowrap flex-shrink-0 ${
                 positive ? "text-green-600" : "text-red-500"
               }`}
             >
@@ -139,7 +139,7 @@ function StatCard({
             </span>
           )}
         </div>
-        <p className={`text-xl font-bold mt-0.5 ${label === "Overdue Loans" ? "text-red-500" : "text-navy-900"}`}>
+        <p className={`text-xl font-bold mt-0.5 truncate ${label === "Overdue Loans" ? "text-red-500" : "text-navy-900"}`}>
           {value}
         </p>
       </div>

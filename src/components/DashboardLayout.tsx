@@ -1,10 +1,18 @@
 import { useState } from "react";
-import { Outlet } from "react-router-dom";
-import { Bell, Mail, Menu, Search } from "lucide-react";
+import { Outlet, useNavigate } from "react-router-dom";
+import { Bell, Mail, Menu, Search, LogOut } from "lucide-react";
 import Sidebar from "./Sidebar";
+import { useAuth } from "../auth/AuthContext";
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/");
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -48,14 +56,21 @@ export default function DashboardLayout() {
               </button>
               <div className="flex items-center gap-3 pl-2 sm:pl-4 border-l border-gray-200">
                 <div className="text-right hidden sm:block">
-                  <p className="text-sm font-semibold text-navy-900">Admin User</p>
+                  <p className="text-sm font-semibold text-navy-900">{user?.name ?? "User"}</p>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide">
-                    Super Administrator
+                    {user?.roleLabel ?? "—"}
                   </p>
                 </div>
                 <div className="w-9 h-9 rounded-full bg-navy-900 flex items-center justify-center text-white text-sm font-bold shrink-0">
-                  A
+                  {user?.avatar?.[0] ?? "U"}
                 </div>
+                <button
+                  onClick={handleLogout}
+                  title="Log out"
+                  className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
               </div>
             </div>
           </div>

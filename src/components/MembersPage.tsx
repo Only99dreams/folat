@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Search,
@@ -11,102 +11,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  Loader2,
 } from "lucide-react";
-
-/* ─── Sample Data ─── */
-interface Member {
-  initials: string;
-  initialsColor: string;
-  name: string;
-  id: string;
-  phone: string;
-  branch: string;
-  group: string;
-  financials: string;
-  loanLabel: string | null;
-  loanAmount: string | null;
-  loanStatus: "ACTIVE LOAN" | "NO LOAN" | "OVERDUE" | null;
-  status: "ACTIVE" | "INACTIVE" | "SUSPENDED";
-  joined: string;
-}
-
-const members: Member[] = [
-  {
-    initials: "EM",
-    initialsColor: "bg-navy-900 text-white",
-    name: "Elizabeth Morgan",
-    id: "FL-2024-001",
-    phone: "+234 802 345 6789",
-    branch: "Main Branch",
-    group: "Farmers Group A",
-    financials: "₦245,000",
-    loanLabel: "Loan:",
-    loanAmount: "₦30,000",
-    loanStatus: "ACTIVE LOAN",
-    status: "ACTIVE",
-    joined: "Jan 12, 2024",
-  },
-  {
-    initials: "JO",
-    initialsColor: "bg-gray-500 text-white",
-    name: "James Okoro",
-    id: "FL-2023-892",
-    phone: "+234 903 111 2233",
-    branch: "North Branch",
-    group: "Retail Traders",
-    financials: "₦1,200,500",
-    loanLabel: "No Loan",
-    loanAmount: null,
-    loanStatus: "NO LOAN",
-    status: "ACTIVE",
-    joined: "Nov 05, 2023",
-  },
-  {
-    initials: "AA",
-    initialsColor: "bg-gray-400 text-white",
-    name: "Aminu Abubakar",
-    id: "FL-2023-445",
-    phone: "+234 701 999 3000",
-    branch: "North Branch",
-    group: "Poultry Cluster",
-    financials: "₦12,400",
-    loanLabel: "Loan:",
-    loanAmount: "₦450,000",
-    loanStatus: "OVERDUE",
-    status: "SUSPENDED",
-    joined: "Sep 28, 2023",
-  },
-  {
-    initials: "SM",
-    initialsColor: "bg-navy-900 text-white",
-    name: "Sarah Mensah",
-    id: "FL-2024-112",
-    phone: "+234 812 444 5556",
-    branch: "Main Branch",
-    group: "Micro-Entrepreneurs",
-    financials: "₦89,200",
-    loanLabel: "Loan:",
-    loanAmount: "₦120,000",
-    loanStatus: "ACTIVE LOAN",
-    status: "ACTIVE",
-    joined: "Feb 02, 2024",
-  },
-  {
-    initials: "DC",
-    initialsColor: "bg-green-600 text-white",
-    name: "David Chen",
-    id: "FL-2022-045",
-    phone: "+234 809 777 6555",
-    branch: "South Sector",
-    group: "Individual",
-    financials: "₦0",
-    loanLabel: "No Loan",
-    loanAmount: null,
-    loanStatus: "NO LOAN",
-    status: "INACTIVE",
-    joined: "May 15, 2022",
-  },
-];
+import { fetchMembers, fetchBranches } from "../lib/db";
 
 const statusBadge = (status: Member["status"]) => {
   switch (status) {
@@ -161,14 +68,53 @@ const loanStatusBadge = (loanStatus: Member["loanStatus"]) => {
 
 export default function MembersPage() {
   const [search, setSearch] = useState("");
-  const [branchFilter, setBranchFilter] = useState("All Branches");
-  const [statusFilter, setStatusFilter] = useState("All Statuses");
+  const [branchFilter, setBranchFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [loanFilter, setLoanFilter] = useState("All Loans");
   const [currentPage, setCurrentPage] = useState(1);
-
-  const totalMembers = 12548;
+  const [members, setMembers] = useState<any[]>([]);
+  const [totalMembers, setTotalMembers] = useState(0);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const perPage = 20;
-  const totalPages = 628;
+  const totalPages = Math.max(1, Math.ceil(totalMembers / perPage));
+
+  const loadMembers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, count } = await fetchMembers({
+        search: search || undefined,
+        branch_id: branchFilter || undefined,
+        status: statusFilter || undefined,
+        page: currentPage,
+        pageSize: perPage,
+      });
+      setMembers(data);
+      setTotalMembers(count);
+    } catch (err) {
+      console.error("Failed to load members:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, branchFilter, statusFilter, currentPage]);
+
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
+
+  useEffect(() => {
+    fetchBranches().then(setBranches).catch(console.error);
+  }, []);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, branchFilter, statusFilter]);
+
+  const getInitials = (first: string, last: string) =>
+    `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase();
+
+  const initColors = ["bg-navy-900 text-white", "bg-green-600 text-white", "bg-gray-500 text-white", "bg-blue-600 text-white"];
 
   return (
     <div className="space-y-6">
@@ -229,10 +175,10 @@ export default function MembersPage() {
                 onChange={(e) => setBranchFilter(e.target.value)}
                 className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
               >
-                <option>All Branches</option>
-                <option>Main Branch</option>
-                <option>North Branch</option>
-                <option>South Sector</option>
+                <option value="">All Branches</option>
+                {branches.map((b: any) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
@@ -249,10 +195,10 @@ export default function MembersPage() {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
               >
-                <option>All Statuses</option>
-                <option>Active</option>
-                <option>Inactive</option>
-                <option>Suspended</option>
+                <option value="">All Statuses</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="suspended">Suspended</option>
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
@@ -328,21 +274,30 @@ export default function MembersPage() {
               </tr>
             </thead>
             <tbody>
-              {members.map((m, i) => (
+              {loading ? (
+                <tr><td colSpan={8} className="px-5 py-16 text-center">
+                  <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
+                  <p className="text-sm text-gray-400 mt-2">Loading members…</p>
+                </td></tr>
+              ) : members.length === 0 ? (
+                <tr><td colSpan={8} className="px-5 py-16 text-center">
+                  <p className="text-sm text-gray-400">No members found.</p>
+                </td></tr>
+              ) : members.map((m: any, i: number) => (
                 <tr
-                  key={i}
+                  key={m.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                 >
                   {/* Member */}
                   <td className="px-5 py-5">
                     <div className="flex items-center gap-3">
                       <div
-                        className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold ${m.initialsColor}`}
+                        className={`w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold ${initColors[i % initColors.length]}`}
                       >
-                        {m.initials}
+                        {getInitials(m.first_name, m.last_name)}
                       </div>
                       <span className="text-sm font-semibold text-navy-900">
-                        {m.name}
+                        {m.first_name} {m.last_name}
                       </span>
                     </div>
                   </td>
@@ -350,7 +305,7 @@ export default function MembersPage() {
                   {/* ID / Phone */}
                   <td className="px-4 py-5">
                     <p className="text-sm font-semibold text-navy-900">
-                      {m.id}
+                      {m.member_id}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">{m.phone}</p>
                   </td>
@@ -358,63 +313,40 @@ export default function MembersPage() {
                   {/* Branch / Group */}
                   <td className="px-4 py-5">
                     <p className="text-sm font-medium text-navy-900">
-                      {m.branch}
+                      {m.branch?.name ?? "—"}
                     </p>
-                    <p className="text-xs text-gray-400 mt-0.5">{m.group}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{m.group?.name ?? "Individual"}</p>
                   </td>
 
                   {/* Financials */}
                   <td className="px-4 py-5">
                     <p className="text-sm font-bold text-navy-900">
-                      {m.financials}
+                      ₦{Number(m.initial_deposit ?? 0).toLocaleString()}
                     </p>
-                    {m.loanLabel && (
-                      <p className="text-xs mt-0.5">
-                        <span
-                          className={
-                            m.loanStatus === "OVERDUE"
-                              ? "text-red-500"
-                              : "text-gray-400"
-                          }
-                        >
-                          {m.loanLabel}
-                        </span>
-                        {m.loanAmount && (
-                          <span
-                            className={
-                              m.loanStatus === "OVERDUE"
-                                ? "text-red-500 font-semibold"
-                                : "text-gray-500"
-                            }
-                          >
-                            {" "}
-                            {m.loanAmount}
-                          </span>
-                        )}
-                      </p>
-                    )}
                   </td>
 
                   {/* Loan Status */}
                   <td className="px-4 py-5 text-center">
-                    {loanStatusBadge(m.loanStatus)}
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500 border border-gray-200">
+                      —
+                    </span>
                   </td>
 
                   {/* Status */}
                   <td className="px-4 py-5 text-center">
-                    {statusBadge(m.status)}
+                    {statusBadge(m.status?.toUpperCase() as "ACTIVE" | "INACTIVE" | "SUSPENDED")}
                   </td>
 
                   {/* Joined */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-gray-600">{m.joined}</p>
+                    <p className="text-sm text-gray-600">{new Date(m.join_date).toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" })}</p>
                   </td>
 
                   {/* Actions */}
                   <td className="px-4 py-5">
                     <div className="flex items-center justify-center gap-1">
                       <Link
-                        to={`/members/${m.id.toLowerCase()}`}
+                        to={`/members/${m.id}`}
                         title="View"
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
                       >

@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import {
   UserPlus,
   Users,
@@ -7,9 +8,11 @@ import {
   Search,
   Clock,
   MessageSquare,
+  Loader2,
 } from "lucide-react";
+import { fetchDashboardStats, fetchRecentTransactions, fetchMembers } from "../lib/db";
 
-/* ─── Mock Data ─── */
+/* ─── Quick Actions (static links) ─── */
 const quickActions = [
   { icon: UserPlus, label: "Register New Member", desc: "Add cooperative or external member", to: "/members/add-cooperative", color: "bg-green-600" },
   { icon: PiggyBank, label: "Record Deposit", desc: "Record savings deposit for member", to: "/savings/deposit", color: "bg-blue-600" },
@@ -17,28 +20,36 @@ const quickActions = [
   { icon: MessageSquare, label: "Messages", desc: "View & send messages", to: "/communication/messages", color: "bg-amber-600" },
 ];
 
-const todayStats = [
-  { label: "Members Registered Today", value: "4", icon: UserPlus, color: "text-green-600", bg: "bg-green-50" },
-  { label: "Deposits Recorded", value: "11", icon: PiggyBank, color: "text-blue-600", bg: "bg-blue-50" },
-  { label: "Walk-in Enquiries", value: "8", icon: Users, color: "text-purple-600", bg: "bg-purple-50" },
-  { label: "Pending Verifications", value: "3", icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
-];
-
-const recentRegistrations = [
-  { name: "Fatima Hassan", type: "Cooperative", branch: "Port Harcourt", time: "30 mins ago" },
-  { name: "David Okafor", type: "External", branch: "Port Harcourt", time: "1 hour ago" },
-  { name: "Amina Bello", type: "Cooperative", branch: "Port Harcourt", time: "2 hours ago" },
-  { name: "Samuel Efio", type: "Cooperative", branch: "Port Harcourt", time: "3 hours ago" },
-];
-
-const recentDeposits = [
-  { member: "Grace Ibe", amount: "₦ 50,000", time: "15 mins ago" },
-  { member: "John Obi", amount: "₦ 120,000", time: "40 mins ago" },
-  { member: "Aisha Musa", amount: "₦ 25,000", time: "1 hour ago" },
-];
-
 export default function FrontDeskDashboard() {
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ totalMembers: 0, totalSavings: 0 });
+  const [recentRegistrations, setRecentRegistrations] = useState<any[]>([]);
+  const [recentDeposits, setRecentDeposits] = useState<any[]>([]);
+  const [now] = useState(() => Date.now());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [dashStats, deposits, members] = await Promise.all([
+          fetchDashboardStats(),
+          fetchRecentTransactions(5),
+          fetchMembers({ page: 1, pageSize: 5 }),
+        ]);
+        setStats(dashStats as any);
+        setRecentDeposits(deposits.filter((d: any) => d.type === "deposit").slice(0, 3));
+        setRecentRegistrations(members.data.slice(0, 4));
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  const todayStats = [
+    { label: "Total Members", value: String(stats.totalMembers), icon: UserPlus, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Recent Deposits", value: String(recentDeposits.length), icon: PiggyBank, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Recent Registrations", value: String(recentRegistrations.length), icon: Users, color: "text-purple-600", bg: "bg-purple-50" },
+    { label: "Pending Tasks", value: "—", icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -63,7 +74,9 @@ export default function FrontDeskDashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {todayStats.map((s) => (
+        {loading ? (
+          <div className="col-span-4 flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-green-600" /></div>
+        ) : todayStats.map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center mb-2`}>
               <s.icon className={`w-4 h-4 ${s.color}`} />
@@ -82,20 +95,27 @@ export default function FrontDeskDashboard() {
             <Link to="/members" className="text-sm font-medium text-green-600 hover:text-green-700">View All</Link>
           </div>
           <div className="space-y-3">
-            {recentRegistrations.map((r, i) => (
-              <div key={i} className="flex items-center gap-4 p-3 rounded-xl hover:bg-gray-50">
+            {recentRegistrations.length === 0 ? (
+              <p className="text-sm text-gray-400">No recent registrations.</p>
+            ) : recentRegistrations.map((r: any) => {
+              const name = `${r.first_name} ${r.last_name}`;
+              const mins = Math.floor((now - new Date(r.created_at).getTime()) / 60000);
+              const ago = mins < 60 ? `${mins} mins ago` : mins < 1440 ? `${Math.floor(mins / 60)} hours ago` : `${Math.floor(mins / 1440)} days ago`;
+              return (
+              <div key={r.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-gray-50">
                 <div className="w-10 h-10 rounded-full bg-navy-900 flex items-center justify-center text-white text-sm font-bold shrink-0">
-                  {r.name.split(" ").map(n => n[0]).join("")}
+                  {r.first_name?.[0]}{r.last_name?.[0]}
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-navy-900">{r.name}</p>
-                  <p className="text-xs text-gray-400">{r.type} Member — {r.branch}</p>
+                  <p className="text-sm font-medium text-navy-900">{name}</p>
+                  <p className="text-xs text-gray-400">{r.member_type || "Member"} — {r.branch?.name || "—"}</p>
                 </div>
                 <span className="text-xs text-gray-400 flex items-center gap-1">
-                  <Clock className="w-3 h-3" />{r.time}
+                  <Clock className="w-3 h-3" />{ago}
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -106,18 +126,25 @@ export default function FrontDeskDashboard() {
             <Link to="/savings" className="text-sm font-medium text-green-600 hover:text-green-700">View All</Link>
           </div>
           <div className="space-y-3">
-            {recentDeposits.map((d, i) => (
-              <div key={i} className="flex items-center justify-between p-4 rounded-xl bg-green-50 border border-green-100">
+            {recentDeposits.length === 0 ? (
+              <p className="text-sm text-gray-400">No recent deposits.</p>
+            ) : recentDeposits.map((d: any) => {
+              const memberName = d.member ? `${d.member.first_name} ${d.member.last_name}` : "—";
+              const mins = Math.floor((now - new Date(d.created_at).getTime()) / 60000);
+              const ago = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
+              return (
+              <div key={d.id} className="flex items-center justify-between p-4 rounded-xl bg-green-50 border border-green-100">
                 <div className="flex items-center gap-3">
                   <PiggyBank className="w-5 h-5 text-green-600" />
                   <div>
-                    <p className="text-sm font-medium text-navy-900">{d.member}</p>
-                    <p className="text-xs text-gray-500">{d.time}</p>
+                    <p className="text-sm font-medium text-navy-900">{memberName}</p>
+                    <p className="text-xs text-gray-500">{ago}</p>
                   </div>
                 </div>
-                <p className="text-sm font-bold text-green-700">{d.amount}</p>
+                <p className="text-sm font-bold text-green-700">₦ {Number(d.amount).toLocaleString()}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
           <Link to="/savings/deposit" className="mt-4 w-full flex items-center justify-center gap-2 py-3 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50">
             <PiggyBank className="w-4 h-4" /> Record New Deposit

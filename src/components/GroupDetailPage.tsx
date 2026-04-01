@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   Pencil,
@@ -10,6 +10,7 @@ import {
   CalendarDays,
   MapPin,
   Users,
+  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -20,42 +21,58 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { fetchGroup, fetchGroupMembers } from "../lib/db";
 
-/* ─── Chart Data ─── */
-const performanceData = [
-  { month: "JAN", savings: 280, loans: 180, repayments: 120 },
-  { month: "FEB", savings: 300, loans: 200, repayments: 150 },
-  { month: "MAR", savings: 350, loans: 170, repayments: 180 },
-  { month: "APR", savings: 320, loans: 220, repayments: 160 },
-  { month: "MAY", savings: 400, loans: 190, repayments: 200 },
-  { month: "JUN", savings: 380, loans: 210, repayments: 190 },
-];
+/* ─── Chart Data (placeholder — will be dynamic when backend supports it) ─── */
+const performanceData: { month: string; savings: number; loans: number; repayments: number }[] = [];
 
 /* ─── Activity Data ─── */
-const recentActivity = [
-  {
-    color: "bg-green-500",
-    title: "Repayment Received",
-    description: "₦45,000 from Samuel Ade (Group Loan #42)",
-    time: "2 hours ago",
-  },
-  {
-    color: "bg-navy-900",
-    title: "New Member Added",
-    description: "Victoria Bello joined Unity Farmers",
-    time: "Yesterday, 4:15 PM",
-  },
-  {
-    color: "bg-red-500",
-    title: "Loan Default Alert",
-    description: "Pending repayment from Friday Silas (3 days late)",
-    time: "June 12, 2024",
-  },
-];
+const recentActivity: { color: string; title: string; description: string; time: string }[] = [];
 
 export default function GroupDetailPage() {
+  const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState("Overview");
+  const [group, setGroup] = useState<any>(null);
+  const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const tabs = ["Overview", "Members", "Savings", "Loans", "Activity"];
+
+  useEffect(() => {
+    if (!id) return;
+    async function load() {
+      setLoading(true);
+      try {
+        const g = await fetchGroup(id!);
+        setGroup(g);
+        const m = await fetchGroupMembers(id!);
+        setMembers(m);
+      } catch (err) {
+        console.error(err);
+      }
+      setLoading(false);
+    }
+    load();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-8 h-8 animate-spin text-navy-900" />
+      </div>
+    );
+  }
+
+  if (!group) {
+    return (
+      <div className="text-center py-20">
+        <p className="text-gray-500">Group not found.</p>
+        <Link to="/groups" className="text-navy-900 hover:underline text-sm mt-2 inline-block">Back to Groups</Link>
+      </div>
+    );
+  }
+
+  const groupAge = Math.floor((Date.now() - new Date(group.created_at).getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+  const formattedDate = new Date(group.created_at).toLocaleDateString("en-NG", { year: "numeric", month: "long", day: "numeric" });
 
   return (
     <div className="space-y-6">
@@ -78,15 +95,15 @@ export default function GroupDetailPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-navy-900">
-                Unity Farmers Group
+                {group.name}
               </h1>
               <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-green-50 text-green-700 text-xs font-semibold border border-green-200">
-                  ID: GRP-00124
+                  ID: {group.group_code}
                 </span>
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5" />
-                  Lagos Mainland Branch
+                  {group.branch?.name || "—"}
                 </span>
               </div>
             </div>
@@ -121,9 +138,9 @@ export default function GroupDetailPage() {
             Total Members
           </p>
           <div className="flex items-baseline gap-2 mt-1">
-            <p className="text-3xl font-bold text-navy-900">18</p>
-            <span className="text-xs font-semibold text-green-600">
-              +2 this mo
+            <p className="text-3xl font-bold text-navy-900">{members.length}</p>
+            <span className="text-xs font-semibold text-gray-500">
+              / {group.max_members || 30} max
             </span>
           </div>
         </div>
@@ -133,7 +150,7 @@ export default function GroupDetailPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
             Group Savings
           </p>
-          <p className="text-2xl font-bold text-navy-900 mt-1">₦2,450,000</p>
+          <p className="text-2xl font-bold text-navy-900 mt-1">₦{Number(group.min_savings || 0).toLocaleString()}</p>
         </div>
 
         {/* Active Loans */}
@@ -141,7 +158,7 @@ export default function GroupDetailPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
             Active Loans
           </p>
-          <p className="text-2xl font-bold text-navy-900 mt-1">₦800,000</p>
+          <p className="text-2xl font-bold text-navy-900 mt-1">—</p>
         </div>
 
         {/* Repayment Rate */}
@@ -150,13 +167,7 @@ export default function GroupDetailPage() {
             Repayment Rate
           </p>
           <div className="flex items-center gap-3 mt-1">
-            <p className="text-2xl font-bold text-navy-900">94%</p>
-            <div className="flex-1 bg-gray-200 rounded-full h-2.5">
-              <div
-                className="bg-green-500 h-2.5 rounded-full"
-                style={{ width: "94%" }}
-              />
-            </div>
+            <p className="text-2xl font-bold text-navy-900">—</p>
           </div>
         </div>
 
@@ -166,8 +177,8 @@ export default function GroupDetailPage() {
             Group Age
           </p>
           <div className="flex items-baseline gap-2 mt-1">
-            <p className="text-3xl font-bold text-navy-900">2</p>
-            <span className="text-sm text-gray-500">Years</span>
+            <p className="text-3xl font-bold text-navy-900">{groupAge < 1 ? "<1" : groupAge}</p>
+            <span className="text-sm text-gray-500">{groupAge === 1 ? "Year" : "Years"}</span>
             <CalendarDays className="w-5 h-5 text-gray-300 ml-auto" />
           </div>
         </div>
@@ -347,35 +358,35 @@ export default function GroupDetailPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-5 gap-x-10">
                 <div className="flex items-baseline gap-2">
                   <p className="text-xs text-gray-400 whitespace-nowrap">
-                    Legal Name
+                    Group Name
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    Unity Farmers Multi-Purpose
+                    {group.name}
                   </p>
                 </div>
                 <div className="flex items-baseline gap-2">
                   <p className="text-xs text-gray-400 whitespace-nowrap">
-                    Primary Sector
+                    Status
                   </p>
-                  <p className="text-sm font-semibold text-green-600">
-                    Agribusiness
+                  <p className={`text-sm font-semibold ${group.status === "active" ? "text-green-600" : "text-red-500"}`}>
+                    {group.status === "active" ? "Active" : "Inactive"}
                   </p>
                 </div>
 
                 <div className="flex items-baseline gap-2">
                   <p className="text-xs text-gray-400 whitespace-nowrap">
-                    Registration Number
+                    Group Code
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    LASG-COOP-2022-882
+                    {group.group_code}
                   </p>
                 </div>
                 <div className="flex items-baseline gap-2">
                   <p className="text-xs text-gray-400 whitespace-nowrap">
-                    Loan Status
+                    Loan Eligibility
                   </p>
-                  <p className="text-sm font-semibold text-green-600">
-                    Healthy
+                  <p className="text-sm font-semibold text-navy-900">
+                    {group.loan_eligibility_rule || "—"}
                   </p>
                 </div>
 
@@ -384,32 +395,32 @@ export default function GroupDetailPage() {
                     Date Formed
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    October 14, 2021
+                    {formattedDate}
                   </p>
                 </div>
                 <div className="flex items-baseline gap-2">
                   <p className="text-xs text-gray-400 whitespace-nowrap">
-                    Last Audit
+                    Branch
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    Mar 02, 2024
+                    {group.branch?.name || "—"}
                   </p>
                 </div>
 
                 <div className="flex items-baseline gap-2">
                   <p className="text-xs text-gray-400 whitespace-nowrap">
-                    Meeting Frequency
+                    Max Members
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    Bi-Weekly (Saturdays)
+                    {group.max_members || 30}
                   </p>
                 </div>
                 <div className="flex items-baseline gap-2">
                   <p className="text-xs text-gray-400 whitespace-nowrap">
-                    Bank Account
+                    Min Savings
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    GTBank **** 4492
+                    ₦{Number(group.min_savings || 0).toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -427,22 +438,16 @@ export default function GroupDetailPage() {
               <div className="space-y-4">
                 {[
                   {
-                    name: "Adebola Johnson",
-                    role: "PRESIDENT",
-                    initials: "AJ",
+                    name: group.leader?.first_name ? `${group.leader.first_name} ${group.leader.last_name}` : "Not assigned",
+                    role: "LEADER",
+                    initials: group.leader?.first_name ? `${group.leader.first_name[0]}${group.leader.last_name[0]}` : "--",
                     bg: "bg-gray-400",
                   },
                   {
-                    name: "Chioma Okafor",
+                    name: group.secretary?.first_name ? `${group.secretary.first_name} ${group.secretary.last_name}` : "Not assigned",
                     role: "SECRETARY",
-                    initials: "CO",
+                    initials: group.secretary?.first_name ? `${group.secretary.first_name[0]}${group.secretary.last_name[0]}` : "--",
                     bg: "bg-navy-900",
-                  },
-                  {
-                    name: "Musa Ibrahim",
-                    role: "TREASURER",
-                    initials: "MI",
-                    bg: "bg-green-600",
                   },
                 ].map((leader, i) => (
                   <div key={i} className="flex items-center gap-3">
@@ -510,7 +515,7 @@ export default function GroupDetailPage() {
             <div className="rounded-xl overflow-hidden border border-gray-100 relative h-40">
               <div className="absolute inset-0 bg-gradient-to-t from-navy-900/80 to-navy-900/30 flex flex-col items-center justify-end pb-4 text-white">
                 <MapPin className="w-8 h-8 text-green-400 mb-2 drop-shadow" />
-                <p className="text-sm font-bold">Lagos Mainland Hub</p>
+                <p className="text-sm font-bold">{ group.branch?.name || "Location"}</p>
                 <p className="text-[11px] text-gray-300 mt-0.5">
                   Primary operational center for this group.
                 </p>
@@ -522,7 +527,41 @@ export default function GroupDetailPage() {
       )}
 
       {/* Placeholder for other tabs */}
-      {activeTab !== "Overview" && (
+      {activeTab === "Members" && (
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <h3 className="text-base font-bold text-navy-900 mb-5">Group Members ({members.length})</h3>
+          {members.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-8">No members in this group yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-400 uppercase tracking-wider">
+                    <th className="pb-3 font-semibold">Member</th>
+                    <th className="pb-3 font-semibold">Member ID</th>
+                    <th className="pb-3 font-semibold">Phone</th>
+                    <th className="pb-3 font-semibold">Joined Group</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {members.map((gm: any) => (
+                    <tr key={gm.id} className="hover:bg-gray-50">
+                      <td className="py-3 font-medium text-navy-900">
+                        {gm.member?.first_name} {gm.member?.last_name}
+                      </td>
+                      <td className="py-3 text-gray-500">{gm.member?.member_id}</td>
+                      <td className="py-3 text-gray-500">{gm.member?.phone || "—"}</td>
+                      <td className="py-3 text-gray-500">{new Date(gm.joined_at).toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab !== "Overview" && activeTab !== "Members" && (
         <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
           <p className="text-gray-400 text-sm">
             {activeTab} content coming soon.

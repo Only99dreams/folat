@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
   ChevronDown,
@@ -8,31 +9,37 @@ import {
   Printer,
   Download,
   Edit,
+  Loader2,
 } from "lucide-react";
+import { fetchLoanApplication } from "../lib/db";
 
 export default function LoanApplicationDetailPage() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const [loan, setLoan] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  /* ─── Mock Data ─── */
-  const loan = {
-    id: "LN-2024-042",
-    status: "Pending",
-    borrowerName: "Sarah Jenkins",
-    fatherName: "Robert Jenkins",
-    group: "Unity Farmers Group",
-    creditOfficer: "James Wilson",
-    savingsBalance: "0.00",
-    loanType: "Business Expansion",
-    loanCycle: "1",
-    endOfYear: "2024",
-    purposeScheme: "Briefly describe the purpose...",
-    riskPremium: "0.0",
-    disbursementDate: "",
-    principalAmount: "0.00",
-    serviceCharge: "0.00",
-    firstInstallmentDate: "",
-    coRecommendation: "",
-    verifiedDate: "Oct 24, 2023",
+  useEffect(() => {
+    if (!id) return;
+    fetchLoanApplication(id).then(setLoan).catch(() => {}).finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-navy-900" /></div>;
+  if (!loan) return <div className="text-center py-20 text-gray-500">Loan application not found.</div>;
+
+  const principal = Number(loan.amount_requested ?? 0);
+  const interestRate = Number(loan.interest_rate ?? 0);
+  const months = Number(loan.duration_months ?? 12);
+  const totalInterest = principal * (interestRate / 100) * (months / 12);
+  const memberName = loan.member ? `${loan.member.first_name} ${loan.member.last_name}` : "N/A";
+  const statusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      pending: "bg-amber-50 text-amber-600 border-amber-200",
+      approved: "bg-green-50 text-green-600 border-green-200",
+      rejected: "bg-red-50 text-red-600 border-red-200",
+      disbursed: "bg-blue-50 text-blue-600 border-blue-200",
+    };
+    return <span className={`px-3 py-1 text-xs font-semibold rounded-full border ${styles[status] ?? styles.pending}`}>{status}</span>;
   };
 
   return (
@@ -48,11 +55,10 @@ export default function LoanApplicationDetailPage() {
             Back to Loan Applications
           </button>
           <h1 className="text-2xl font-bold text-navy-900">
-            New Loan Application
+            Loan Application — {loan.loan_id}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Fill in the required information to process the cooperative loan
-            request.
+            Status: {statusBadge(loan.status)} • Applied on {new Date(loan.created_at).toLocaleDateString()}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -93,7 +99,7 @@ export default function LoanApplicationDetailPage() {
               </label>
               <input
                 type="text"
-                value={loan.borrowerName}
+                value={memberName}
                 readOnly
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
               />
@@ -104,7 +110,7 @@ export default function LoanApplicationDetailPage() {
               </label>
               <input
                 type="text"
-                value={loan.fatherName}
+                value=""
                 readOnly
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
               />
@@ -119,11 +125,11 @@ export default function LoanApplicationDetailPage() {
               </label>
               <div className="relative">
                 <select
-                  value={loan.group}
+                  value={loan.branch?.name ?? ''}
                   disabled
                   className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 bg-gray-50"
                 >
-                  <option>{loan.group}</option>
+                  <option>{loan.branch?.name ?? 'N/A'}</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
@@ -134,7 +140,7 @@ export default function LoanApplicationDetailPage() {
               </label>
               <input
                 type="text"
-                value={loan.creditOfficer}
+                value={loan.officer?.full_name ?? 'N/A'}
                 readOnly
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
               />
@@ -149,7 +155,7 @@ export default function LoanApplicationDetailPage() {
                 </span>
                 <input
                   type="text"
-                  value={loan.savingsBalance}
+                  value=""
                   readOnly
                   className="w-full pl-8 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
                 />
@@ -180,11 +186,11 @@ export default function LoanApplicationDetailPage() {
               </label>
               <div className="relative">
                 <select
-                  value={loan.loanType}
+                  value={loan.loan_type ?? ''}
                   disabled
                   className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 bg-gray-50"
                 >
-                  <option>{loan.loanType}</option>
+                  <option>{loan.loan_type ?? 'N/A'}</option>
                 </select>
                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
@@ -199,7 +205,7 @@ export default function LoanApplicationDetailPage() {
                 <input
                   type="text"
                   placeholder="e.g. 1"
-                  value={loan.loanCycle}
+                  value={loan.duration_months ?? ''}
                   readOnly
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
                 />
@@ -210,7 +216,7 @@ export default function LoanApplicationDetailPage() {
                 </label>
                 <input
                   type="text"
-                  value={loan.endOfYear}
+                  value={new Date(loan.created_at).getFullYear()}
                   readOnly
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
                 />
@@ -223,7 +229,7 @@ export default function LoanApplicationDetailPage() {
                 Purpose Scheme
               </label>
               <textarea
-                value={loan.purposeScheme}
+                value={loan.purpose ?? ''}
                 readOnly
                 rows={2}
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700 resize-none"
@@ -237,7 +243,7 @@ export default function LoanApplicationDetailPage() {
               </label>
               <input
                 type="text"
-                value={loan.riskPremium}
+                value={`${loan.interest_rate ?? 0}`}
                 readOnly
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
               />
@@ -268,7 +274,7 @@ export default function LoanApplicationDetailPage() {
                   <input
                     type="text"
                     placeholder="mm/dd/yyyy"
-                    value={loan.disbursementDate}
+                    value={loan.disbursement_date ? new Date(loan.disbursement_date).toLocaleDateString() : ''}
                     readOnly
                     className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
                   />
@@ -287,7 +293,7 @@ export default function LoanApplicationDetailPage() {
                   </span>
                   <input
                     type="text"
-                    value={loan.principalAmount}
+                    value={Number(loan.amount_requested ?? 0).toLocaleString()}
                     readOnly
                     className="w-full pl-8 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
                   />
@@ -300,7 +306,7 @@ export default function LoanApplicationDetailPage() {
                   Loan with Service Charge ($ Charge)
                 </label>
                 <p className="text-2xl font-bold text-navy-900">
-                  ${loan.serviceCharge}
+                  ₦{totalInterest.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </p>
                 <p className="text-xs text-green-500 mt-1">
                   Calculated automatically based on principal and risk premium.
@@ -328,7 +334,7 @@ export default function LoanApplicationDetailPage() {
                 <input
                   type="text"
                   placeholder="mm/dd/yyyy"
-                  value={loan.firstInstallmentDate}
+                    value={loan.first_installment_date ? new Date(loan.first_installment_date).toLocaleDateString() : ''}
                   readOnly
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
                 />
@@ -374,7 +380,7 @@ export default function LoanApplicationDetailPage() {
               </label>
               <textarea
                 placeholder="Enter credit officer's recommendation notes..."
-                value={loan.coRecommendation}
+                value={loan.approval_notes ?? ''}
                 readOnly
                 rows={5}
                 className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700 resize-none"
@@ -402,7 +408,7 @@ export default function LoanApplicationDetailPage() {
             <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-4 py-2">
               <CheckCircle2 className="w-4 h-4 text-green-600" />
               <span className="text-xs text-green-700 font-medium">
-                Verified by System Integrity Check on {loan.verifiedDate}
+                Verified — Created on {new Date(loan.created_at).toLocaleDateString()}
               </span>
             </div>
           </div>

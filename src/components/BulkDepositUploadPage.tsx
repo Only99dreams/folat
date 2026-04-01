@@ -5,116 +5,139 @@ import {
   Upload,
   AlertCircle,
   FileUp,
+  Loader2,
+  CheckCircle,
 } from "lucide-react";
+import { fetchMembers, recordDeposit } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
-/* ─── Preview Data ─── */
+/* ─── Preview Row Type ─── */
 interface PreviewRow {
   memberId: string;
-  memberIdError: boolean;
+  memberDbId: string | null;
   name: string;
-  amount: string;
-  amountError: boolean;
+  amount: number;
   date: string;
   status: "Valid" | "Missing Amount" | "Invalid ID";
 }
 
-const previewRows: PreviewRow[] = [
-  {
-    memberId: "#MEM-9 021",
-    memberIdError: false,
-    name: "Sarah Jenkins",
-    amount: "$1,250.00",
-    amountError: false,
-    date: "Oct 24, 2023",
-    status: "Valid",
-  },
-  {
-    memberId: "#MEM-8 842",
-    memberIdError: false,
-    name: "Michael Ross",
-    amount: "—",
-    amountError: true,
-    date: "Oct 24, 2023",
-    status: "Missing Amount",
-  },
-  {
-    memberId: "#MEM-4 451",
-    memberIdError: false,
-    name: "Elena Rodriguez",
-    amount: "$450.00",
-    amountError: false,
-    date: "Oct 23, 2023",
-    status: "Valid",
-  },
-  {
-    memberId: "#ERR-000",
-    memberIdError: true,
-    name: "Unknown Member",
-    amount: "$2,100.00",
-    amountError: false,
-    date: "Oct 23, 2023",
-    status: "Invalid ID",
-  },
-  {
-    memberId: "#MEM-1 129",
-    memberIdError: false,
-    name: "David Chen",
-    amount: "$85.00",
-    amountError: false,
-    date: "Oct 23, 2023",
-    status: "Valid",
-  },
-];
-
 const statusBadge = (status: PreviewRow["status"]) => {
-  switch (status) {
-    case "Valid":
-      return (
-        <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-          Valid
-        </span>
-      );
-    case "Missing Amount":
-      return (
-        <span className="flex items-center gap-1 text-sm text-red-500 font-medium">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-          Missing Amount
-        </span>
-      );
-    case "Invalid ID":
-      return (
-        <span className="flex items-center gap-1 text-sm text-red-500 font-medium">
-          <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
-          Invalid ID
-        </span>
-      );
-  }
+  if (status === "Valid") return <span className="flex items-center gap-1 text-sm text-green-600 font-medium"><span className="w-1.5 h-1.5 rounded-full bg-green-500" />Valid</span>;
+  return <span className="flex items-center gap-1 text-sm text-red-500 font-medium"><span className="w-1.5 h-1.5 rounded-full bg-red-500" />{status}</span>;
 };
 
 export default function BulkDepositUploadPage() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
-  const [showPreview, setShowPreview] = useState(true); // true for demo
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
+  const [parsing, setParsing] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ success: number; failed: number } | null>(null);
+
+  const downloadTemplate = () => {
+    const csv = "member_id,amount,date\nFOL-2025-0001,5000,2026-03-31\nFOL-2025-0002,10000,2026-03-31\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "bulk_deposit_template.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const parseCSV = async (csvFile: File) => {
+    setParsing(true);
+    try {
+      const text = await csvFile.text();
+      const lines = text.split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length < 2) { setParsing(false); return; }
+      // Expect: member_id, amount, date (optional)
+      const rows: PreviewRow[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+        const memberId = cols[0] || "";
+        const amountStr = cols[1] || "";
+        const dateStr = cols[2] || new Date().toISOString().slice(0, 10);
+        const amount = parseFloat(amountStr.replace(/[^0-9.]/g, ""));
+
+        if (!memberId) continue;
+
+        // Look up member in DB
+        let memberDbId: string | null = null;
+        let name = "Unknown";
+        let status: PreviewRow["status"] = "Valid";
+
+        try {
+          const { data } = await fetchMembers({ search: memberId });
+          const match = data.find((m: any) => m.member_id === memberId);
+          if (match) {
+            memberDbId = match.id;
+            name = `${match.first_name} ${match.last_name}`;
+          } else {
+            status = "Invalid ID";
+          }
+        } catch {
+          status = "Invalid ID";
+        }
+
+        if (isNaN(amount) || amount <= 0) status = "Missing Amount";
+
+        rows.push({ memberId, memberDbId, name, amount: isNaN(amount) ? 0 : amount, date: dateStr, status });
+      }
+      setPreviewRows(rows);
+      setShowPreview(true);
+    } catch (err) {
+      console.error("CSV parse error:", err);
+    }
+    setParsing(false);
+  };
 
   const handleFileDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
     if (e.dataTransfer.files.length) {
-      setFile(e.dataTransfer.files[0]);
-      setShowPreview(true);
+      const f = e.dataTransfer.files[0];
+      setFile(f);
+      parseCSV(f);
     }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length) {
-      setFile(e.target.files[0]);
-      setShowPreview(true);
+      const f = e.target.files[0];
+      setFile(f);
+      parseCSV(f);
     }
   };
 
   const errorCount = previewRows.filter((r) => r.status !== "Valid").length;
+  const validRows = previewRows.filter((r) => r.status === "Valid");
+
+  const handleUpload = async () => {
+    setUploading(true);
+    let success = 0;
+    let failed = 0;
+    for (const row of validRows) {
+      if (!row.memberDbId) { failed++; continue; }
+      try {
+        await recordDeposit({
+          member_id: row.memberDbId,
+          amount: row.amount,
+          payment_method: "bank_transfer",
+          notes: "Bulk upload deposit",
+          recorded_by: profile?.id ?? "",
+        });
+        success++;
+      } catch {
+        failed++;
+      }
+    }
+    setUploadResult({ success, failed });
+    setUploading(false);
+  };
 
   return (
     <div className="max-w-4xl mx-auto pb-8">
@@ -128,7 +151,10 @@ export default function BulkDepositUploadPage() {
             Upload a CSV file containing multiple member savings deposits.
           </p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+        <button
+          onClick={downloadTemplate}
+          className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors"
+        >
           <Download className="w-4 h-4" />
           Download CSV Template
         </button>
@@ -152,7 +178,7 @@ export default function BulkDepositUploadPage() {
           <FileUp className="w-7 h-7 text-navy-900" />
         </div>
         <p className="text-base font-semibold text-navy-900">
-          {file ? file.name : "Drag and drop CSV file"}
+          {parsing ? "Parsing CSV..." : file ? file.name : "Drag and drop CSV file"}
         </p>
         <p className="text-sm text-gray-400 mt-1">
           or click to browse from your computer
@@ -198,9 +224,8 @@ export default function BulkDepositUploadPage() {
           <div className="flex items-center justify-between px-6 pt-6 pb-4">
             <h3 className="text-base font-bold text-navy-900">Data Preview</h3>
             <p className="text-sm text-gray-400">
-              Showing{" "}
-              <span className="font-medium text-gray-600">15</span> of{" "}
-              <span className="font-semibold text-green-600">124</span> records
+              <span className="font-semibold text-green-600">{validRows.length}</span> valid of{" "}
+              <span className="font-medium text-gray-600">{previewRows.length}</span> records
             </p>
           </div>
 
@@ -231,46 +256,38 @@ export default function BulkDepositUploadPage() {
                     key={i}
                     className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                   >
-                    {/* Member ID */}
                     <td className="px-6 py-4">
-                      <p
-                        className={`text-sm font-medium ${
-                          row.memberIdError
-                            ? "text-red-500"
-                            : "text-navy-900"
-                        }`}
-                      >
+                      <p className={`text-sm font-medium ${row.status === "Invalid ID" ? "text-red-500" : "text-navy-900"}`}>
                         {row.memberId}
                       </p>
                     </td>
-
-                    {/* Name */}
                     <td className="px-4 py-4">
                       <p className="text-sm text-navy-900">{row.name}</p>
                     </td>
-
-                    {/* Amount */}
                     <td className="px-4 py-4">
-                      <p
-                        className={`text-sm font-medium ${
-                          row.amountError ? "text-red-400" : "text-navy-900"
-                        }`}
-                      >
-                        {row.amount}
+                      <p className={`text-sm font-medium ${row.status === "Missing Amount" ? "text-red-400" : "text-navy-900"}`}>
+                        {row.amount > 0 ? `₦${row.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "—"}
                       </p>
                     </td>
-
-                    {/* Date */}
                     <td className="px-4 py-4">
                       <p className="text-sm text-gray-600">{row.date}</p>
                     </td>
-
-                    {/* Status */}
                     <td className="px-4 py-4">{statusBadge(row.status)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ Upload Result ═══════════ */}
+      {uploadResult && (
+        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6">
+          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+          <div>
+            <p className="text-sm font-bold text-green-700">Upload Complete</p>
+            <p className="text-sm text-green-600">{uploadResult.success} deposits recorded successfully. {uploadResult.failed > 0 ? `${uploadResult.failed} failed.` : ""}</p>
           </div>
         </div>
       )}
@@ -284,11 +301,12 @@ export default function BulkDepositUploadPage() {
           Cancel
         </Link>
         <button
-          onClick={() => navigate("/savings")}
-          className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+          onClick={handleUpload}
+          disabled={uploading || validRows.length === 0 || !!uploadResult}
+          className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
         >
-          <Upload className="w-4 h-4" />
-          Confirm Upload
+          {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+          {uploading ? `Uploading... (${validRows.length} deposits)` : `Confirm Upload (${validRows.length} valid)`}
         </button>
       </div>
     </div>

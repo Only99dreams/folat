@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   Download,
@@ -14,64 +14,60 @@ import {
   LogOut,
   Filter,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
+import { fetchAttendance } from "../lib/db";
 
-/* ─── Attendance Data ─── */
-interface AttendanceRecord {
-  id: string;
-  employee: string;
-  role: string;
-  avatar: string;
-  branch: string;
-  date: string;
-  clockIn: string;
-  clockOut: string;
-  hoursWorked: string;
-  status: "Present" | "Late" | "Absent" | "Half Day" | "On Leave";
-}
+const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500","bg-pink-600","bg-teal-600","bg-navy-900"];
 
-const attendanceRecords: AttendanceRecord[] = [
-  { id: "1", employee: "Adebayo Ogunlesi", role: "Branch Manager", avatar: "AO", branch: "Lagos Central", date: "Oct 24, 2023", clockIn: "08:02 AM", clockOut: "05:15 PM", hoursWorked: "9h 13m", status: "Present" },
-  { id: "2", employee: "Chioma Nwosu", role: "Finance Officer", avatar: "CN", branch: "Lagos Central", date: "Oct 24, 2023", clockIn: "08:45 AM", clockOut: "05:30 PM", hoursWorked: "8h 45m", status: "Late" },
-  { id: "3", employee: "Ibrahim Musa", role: "Loan Officer", avatar: "IM", branch: "Abuja Branch", date: "Oct 24, 2023", clockIn: "07:55 AM", clockOut: "05:00 PM", hoursWorked: "9h 05m", status: "Present" },
-  { id: "4", employee: "Grace Adeyemi", role: "Front Desk", avatar: "GA", branch: "Lagos Central", date: "Oct 24, 2023", clockIn: "—", clockOut: "—", hoursWorked: "—", status: "Absent" },
-  { id: "5", employee: "Emeka Obi", role: "Loan Officer", avatar: "EO", branch: "Port Harcourt", date: "Oct 24, 2023", clockIn: "08:00 AM", clockOut: "01:00 PM", hoursWorked: "5h 00m", status: "Half Day" },
-  { id: "6", employee: "Fatima Abdullahi", role: "Finance Officer", avatar: "FA", branch: "Kano North", date: "Oct 24, 2023", clockIn: "—", clockOut: "—", hoursWorked: "—", status: "On Leave" },
-  { id: "7", employee: "Tunde Bakare", role: "IT Support", avatar: "TB", branch: "Lagos Central", date: "Oct 24, 2023", clockIn: "07:50 AM", clockOut: "05:10 PM", hoursWorked: "9h 20m", status: "Present" },
-  { id: "8", employee: "Amaka Eze", role: "HR Officer", avatar: "AE", branch: "Abuja Branch", date: "Oct 24, 2023", clockIn: "09:10 AM", clockOut: "05:30 PM", hoursWorked: "8h 20m", status: "Late" },
-];
-
-const statusBadge = (status: AttendanceRecord["status"]) => {
+const statusBadge = (status: string) => {
   const s: Record<string, string> = {
-    Present: "bg-green-100 text-green-700",
-    Late: "bg-amber-100 text-amber-700",
-    Absent: "bg-red-100 text-red-600",
-    "Half Day": "bg-blue-100 text-blue-700",
-    "On Leave": "bg-purple-100 text-purple-700",
+    present: "bg-green-100 text-green-700",
+    late: "bg-amber-100 text-amber-700",
+    absent: "bg-red-100 text-red-600",
+    half_day: "bg-blue-100 text-blue-700",
+    leave: "bg-purple-100 text-purple-700",
   };
+  const labels: Record<string,string> = { present: "PRESENT", late: "LATE", absent: "ABSENT", half_day: "HALF DAY", leave: "ON LEAVE" };
   return (
-    <span className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${s[status]}`}>
-      {status.toUpperCase()}
+    <span className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${s[status] || "bg-gray-100 text-gray-600"}`}>
+      {labels[status] || status.toUpperCase()}
     </span>
   );
 };
 
 export default function AttendanceLogPage() {
+  const [records, setRecords] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
 
-  const statuses = ["All", "Present", "Late", "Absent", "Half Day", "On Leave"];
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await fetchAttendance({ date: selectedDate });
+        setRecords(data);
+      } catch {}
+      setLoading(false);
+    })();
+  }, [selectedDate]);
 
-  const filtered = attendanceRecords.filter((r) => {
-    const matchesSearch = r.employee.toLowerCase().includes(searchQuery.toLowerCase()) || r.branch.toLowerCase().includes(searchQuery.toLowerCase());
+  const statuses = ["All", "present", "late", "absent", "half_day", "leave"];
+  const statusLabels: Record<string,string> = { All: "All", present: "Present", late: "Late", absent: "Absent", half_day: "Half Day", leave: "On Leave" };
+
+  const filtered = records.filter((r: any) => {
+    const name = r.staff ? `${r.staff.first_name ?? ""} ${r.staff.last_name ?? ""}` : "";
+    const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = filterStatus === "All" || r.status === filterStatus;
     return matchesSearch && matchesStatus;
   });
 
-  const presentCount = attendanceRecords.filter((r) => r.status === "Present").length;
-  const lateCount = attendanceRecords.filter((r) => r.status === "Late").length;
-  const absentCount = attendanceRecords.filter((r) => r.status === "Absent").length;
-  const onLeaveCount = attendanceRecords.filter((r) => r.status === "On Leave" || r.status === "Half Day").length;
+  const presentCount = records.filter((r: any) => r.status === "present").length;
+  const lateCount = records.filter((r: any) => r.status === "late").length;
+  const absentCount = records.filter((r: any) => r.status === "absent").length;
+  const onLeaveCount = records.filter((r: any) => r.status === "leave" || r.status === "half_day").length;
 
   return (
     <div className="space-y-6">
@@ -84,11 +80,7 @@ export default function AttendanceLogPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">
-            <Calendar className="w-4 h-4 text-gray-400" />
-            Oct 24, 2023
-            <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-          </div>
+          <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500" />
           <button className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
             <Download className="w-4 h-4" />
             Export
@@ -104,7 +96,7 @@ export default function AttendanceLogPage() {
             <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Present</p>
           </div>
           <p className="text-2xl font-bold text-navy-900">{presentCount}</p>
-          <p className="text-xs text-green-600 font-medium mt-1">{Math.round((presentCount / attendanceRecords.length) * 100)}% of staff</p>
+          <p className="text-xs text-green-600 font-medium mt-1">{records.length > 0 ? Math.round((presentCount / records.length) * 100) : 0}% of staff</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
@@ -146,7 +138,7 @@ export default function AttendanceLogPage() {
                     : "text-gray-500 hover:bg-gray-100"
                 }`}
               >
-                {st}
+                {statusLabels[st] || st}
               </button>
             ))}
           </div>
@@ -175,40 +167,40 @@ export default function AttendanceLogPage() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((record) => (
+            {loading ? (
+              <tr><td colSpan={6} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={6} className="text-center py-12 text-gray-400 text-sm">No attendance records for this date</td></tr>
+            ) : filtered.map((record: any, i: number) => {
+              const name = record.staff ? `${record.staff.first_name ?? ""} ${record.staff.last_name ?? ""}`.trim() : "Unknown";
+              const initials = name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0,2);
+              const role = record.staff?.job_role || record.staff?.staff_id || "";
+              const clockIn = record.clock_in ? new Date(record.clock_in).toLocaleTimeString("en-NG", {hour:"2-digit",minute:"2-digit"}) : "—";
+              const clockOut = record.clock_out ? new Date(record.clock_out).toLocaleTimeString("en-NG", {hour:"2-digit",minute:"2-digit"}) : "—";
+              let hoursWorked = "—";
+              if (record.clock_in && record.clock_out) {
+                const diff = (new Date(record.clock_out).getTime() - new Date(record.clock_in).getTime()) / (1000*60);
+                hoursWorked = `${Math.floor(diff/60)}h ${Math.round(diff%60)}m`;
+              }
+              return (
               <tr key={record.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full bg-navy-900 text-white flex items-center justify-center text-xs font-bold">
-                      {record.avatar}
-                    </div>
+                    <div className={`w-9 h-9 rounded-full ${avatarColors[i % avatarColors.length]} text-white flex items-center justify-center text-xs font-bold`}>{initials}</div>
                     <div>
-                      <p className="text-sm font-semibold text-navy-900">{record.employee}</p>
-                      <p className="text-xs text-gray-400">{record.role}</p>
+                      <p className="text-sm font-semibold text-navy-900">{name}</p>
+                      <p className="text-xs text-gray-400">{role}</p>
                     </div>
                   </div>
                 </td>
-                <td className="px-4 py-4 text-sm text-gray-600">{record.branch}</td>
-                <td className="px-4 py-4">
-                  <div className="flex items-center gap-1.5">
-                    <LogIn className="w-3.5 h-3.5 text-green-500" />
-                    <span className="text-sm text-gray-600">{record.clockIn}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <div className="flex items-center gap-1.5">
-                    <LogOut className="w-3.5 h-3.5 text-red-400" />
-                    <span className="text-sm text-gray-600">{record.clockOut}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-4">
-                  <span className={`text-sm font-medium ${record.hoursWorked === "—" ? "text-gray-400" : "text-navy-900"}`}>
-                    {record.hoursWorked}
-                  </span>
-                </td>
+                <td className="px-4 py-4 text-sm text-gray-600">{record.branch_id ? record.branch_id.slice(0,8) : "—"}</td>
+                <td className="px-4 py-4"><div className="flex items-center gap-1.5"><LogIn className="w-3.5 h-3.5 text-green-500" /><span className="text-sm text-gray-600">{clockIn}</span></div></td>
+                <td className="px-4 py-4"><div className="flex items-center gap-1.5"><LogOut className="w-3.5 h-3.5 text-red-400" /><span className="text-sm text-gray-600">{clockOut}</span></div></td>
+                <td className="px-4 py-4"><span className={`text-sm font-medium ${hoursWorked === "—" ? "text-gray-400" : "text-navy-900"}`}>{hoursWorked}</span></td>
                 <td className="px-4 py-4">{statusBadge(record.status)}</td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         </div>
@@ -217,7 +209,7 @@ export default function AttendanceLogPage() {
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
           <p className="text-sm text-gray-500">
             Showing <span className="font-semibold text-navy-900">1 to {filtered.length}</span> of{" "}
-            <span className="font-semibold text-navy-900">85</span> staff
+            <span className="font-semibold text-navy-900">{records.length}</span> staff
           </p>
           <div className="flex items-center gap-1">
             <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400"><ChevronLeft className="w-4 h-4" /></button>

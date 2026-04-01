@@ -56,6 +56,8 @@ import AccessControlPage from "./components/AccessControlPage";
 import AuditLogPage from "./components/AuditLogPage";
 import GeneralSettingsPage from "./components/GeneralSettingsPage";
 import NotificationSettingsPage from "./components/NotificationSettingsPage";
+import EmailVerificationPage from "./components/EmailVerificationPage";
+import UserProfilePage from "./components/UserProfilePage";
 import "./App.css";
 
 function App() {
@@ -66,6 +68,7 @@ function App() {
           {/* ── Public routes ── */}
           <Route path="/" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
+          <Route path="/verify-email" element={<EmailVerificationPage />} />
           <Route path="/2fa" element={<TwoFactorPage />} />
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
@@ -145,6 +148,9 @@ function App() {
               {/* Settings */}
               <Route path="/settings/general" element={<ProtectedRoute requiredPermissions={["settings.general"]}><GeneralSettingsPage /></ProtectedRoute>} />
               <Route path="/settings/notifications" element={<ProtectedRoute requiredPermissions={["settings.notifications"]}><NotificationSettingsPage /></ProtectedRoute>} />
+
+              {/* User Profile */}
+              <Route path="/profile" element={<UserProfilePage />} />
             </Route>
           </Route>
         </Routes>

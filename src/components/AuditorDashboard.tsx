@@ -1,11 +1,13 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import {
   FileSearch,
   Shield,
   AlertTriangle,
   FileText,
   Activity,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -16,42 +18,45 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { fetchAuditLog } from "../lib/db";
 
-/* ─── Mock Data ─── */
-const complianceData = [
-  { month: "Jan", compliant: 45, issues: 3 },
-  { month: "Feb", compliant: 48, issues: 2 },
-  { month: "Mar", compliant: 44, issues: 5 },
-  { month: "Apr", compliant: 50, issues: 1 },
-  { month: "May", compliant: 47, issues: 4 },
-  { month: "Jun", compliant: 52, issues: 2 },
-];
-
-const stats = [
-  { label: "Audit Entries Reviewed", value: "342", change: "This month", icon: FileSearch, color: "text-blue-600", bg: "bg-blue-50" },
-  { label: "Compliance Score", value: "94%", change: "+2% from last month", icon: Shield, color: "text-green-600", bg: "bg-green-50" },
-  { label: "Flagged Transactions", value: "7", change: "Pending review", icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
-  { label: "Reports Generated", value: "12", change: "This quarter", icon: FileText, color: "text-purple-600", bg: "bg-purple-50" },
-];
-
-const auditFindings = [
-  { severity: "High", desc: "Loan #L1955 disbursed without complete documentation", date: "2 days ago", status: "Open" },
-  { severity: "Medium", desc: "Branch expense report missing 3 receipts (Ikeja)", date: "5 days ago", status: "Under Review" },
-  { severity: "Low", desc: "Staff attendance discrepancy — Abuja branch", date: "1 week ago", status: "Resolved" },
-  { severity: "High", desc: "Unauthorized access attempt to finance module", date: "1 week ago", status: "Escalated" },
-  { severity: "Medium", desc: "Savings withdrawal above limit without approval", date: "2 weeks ago", status: "Open" },
-];
-
-const recentAuditLogs = [
-  { user: "Branch Mgr (Ikeja)", action: "Approved loan #L2043", time: "10 mins ago", ip: "192.168.1.45" },
-  { user: "Finance Officer", action: "Recorded expense ₦250,000", time: "30 mins ago", ip: "192.168.1.12" },
-  { user: "Front Desk (PH)", action: "Registered new member", time: "1 hour ago", ip: "10.0.0.88" },
-  { user: "Super Admin", action: "Updated system settings", time: "2 hours ago", ip: "192.168.1.1" },
-  { user: "Loan Officer", action: "Created loan application #L2046", time: "3 hours ago", ip: "192.168.1.67" },
+/* ─── Chart placeholder ─── */
+const defaultComplianceData = [
+  { month: "Jan", compliant: 0, issues: 0 },
+  { month: "Feb", compliant: 0, issues: 0 },
+  { month: "Mar", compliant: 0, issues: 0 },
+  { month: "Apr", compliant: 0, issues: 0 },
+  { month: "May", compliant: 0, issues: 0 },
+  { month: "Jun", compliant: 0, issues: 0 },
 ];
 
 export default function AuditorDashboard() {
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [totalEntries, setTotalEntries] = useState(0);
+  const [recentLogs, setRecentLogs] = useState<any[]>([]);
+  const [complianceData] = useState(defaultComplianceData);
+  const [now] = useState(() => Date.now());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [logRes] = await Promise.all([
+          fetchAuditLog({ page: 1, pageSize: 5 }),
+        ]);
+        setTotalEntries(logRes.count);
+        setRecentLogs(logRes.data);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  const stats = [
+    { label: "Audit Entries", value: String(totalEntries), change: "All time", icon: FileSearch, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Compliance Score", value: "—", change: "Not tracked", icon: Shield, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Recent Entries", value: String(recentLogs.length), change: "Latest batch", icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
+    { label: "Reports", value: "—", change: "See Reports page", icon: FileText, color: "text-purple-600", bg: "bg-purple-50" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -76,7 +81,9 @@ export default function AuditorDashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s) => (
+        {loading ? (
+          <div className="col-span-4 flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-green-600" /></div>
+        ) : stats.map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center mb-2`}>
               <s.icon className={`w-4 h-4 ${s.color}`} />
@@ -113,54 +120,58 @@ export default function AuditorDashboard() {
             <Link to="/security/audit" className="text-sm text-green-600 font-medium hover:text-green-700">View Full Log</Link>
           </div>
           <div className="space-y-4">
-            {recentAuditLogs.map((l, i) => (
-              <div key={i} className="flex gap-3">
+            {recentLogs.length === 0 ? (
+              <p className="text-sm text-gray-400">No recent activity.</p>
+            ) : recentLogs.map((l: any) => {
+              const mins = Math.floor((now - new Date(l.created_at).getTime()) / 60000);
+              const ago = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
+              return (
+              <div key={l.id} className="flex gap-3">
                 <span className="mt-1.5 w-2 h-2 rounded-full bg-blue-500 shrink-0" />
                 <div>
-                  <p className="text-sm text-navy-900"><span className="font-medium">{l.user}</span> — {l.action}</p>
-                  <p className="text-xs text-gray-400">{l.time} · {l.ip}</p>
+                  <p className="text-sm text-navy-900"><span className="font-medium">{l.user?.full_name || "System"}</span> — {l.action} {l.entity_type}</p>
+                  <p className="text-xs text-gray-400">{ago} · {l.ip_address || "—"}</p>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Audit Findings */}
+      {/* Audit Log as Table */}
       <div className="bg-white rounded-xl border border-gray-100 p-6">
-        <h2 className="text-lg font-bold text-navy-900 mb-4">Audit Findings</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold text-navy-900">Recent Audit Entries</h2>
+          <Link to="/security/audit" className="text-sm font-medium text-green-600 hover:text-green-700">View Full Log</Link>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs text-gray-400 uppercase tracking-wide border-b border-gray-100">
-                <th className="pb-3 font-medium">Severity</th>
-                <th className="pb-3 font-medium">Finding</th>
-                <th className="pb-3 font-medium">Date</th>
-                <th className="pb-3 font-medium">Status</th>
+                <th className="pb-3 font-medium">User</th>
+                <th className="pb-3 font-medium">Action</th>
+                <th className="pb-3 font-medium">Entity</th>
+                <th className="pb-3 font-medium">Time</th>
               </tr>
             </thead>
             <tbody>
-              {auditFindings.map((f, i) => (
-                <tr key={i} className="border-b border-gray-50 last:border-0">
+              {recentLogs.length === 0 ? (
+                <tr><td colSpan={4} className="py-6 text-center text-gray-400 text-sm">No audit entries.</td></tr>
+              ) : recentLogs.map((f: any) => {
+                const mins = Math.floor((now - new Date(f.created_at).getTime()) / 60000);
+                const ago = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
+                return (
+                <tr key={f.id} className="border-b border-gray-50 last:border-0">
+                  <td className="py-3 font-medium text-navy-900">{f.user?.full_name || "System"}</td>
                   <td className="py-3">
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                      f.severity === "High" ? "bg-red-100 text-red-700" :
-                      f.severity === "Medium" ? "bg-amber-100 text-amber-700" :
-                      "bg-gray-100 text-gray-600"
-                    }`}>{f.severity}</span>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">{f.action}</span>
                   </td>
-                  <td className="py-3 font-medium text-navy-900 max-w-md">{f.desc}</td>
-                  <td className="py-3 text-gray-400">{f.date}</td>
-                  <td className="py-3">
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                      f.status === "Open" ? "bg-red-100 text-red-700" :
-                      f.status === "Resolved" ? "bg-green-100 text-green-700" :
-                      f.status === "Escalated" ? "bg-purple-100 text-purple-700" :
-                      "bg-amber-100 text-amber-700"
-                    }`}>{f.status}</span>
-                  </td>
+                  <td className="py-3 text-gray-500">{f.entity_type}</td>
+                  <td className="py-3 text-gray-400">{ago}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

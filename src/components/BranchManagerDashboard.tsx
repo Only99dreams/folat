@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import {
   Users,
   PiggyBank,
@@ -8,45 +9,62 @@ import {
   MapPin,
   CreditCard,
   FileBarChart,
-  TrendingUp,
   ClipboardCheck,
   Calendar,
   Clock,
   UserCheck,
+  Loader2,
 } from "lucide-react";
-
-/* ─── Mock Data ─── */
-const stats = [
-  { label: "Branch Members", value: "1,247", change: "+12%", icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
-  { label: "Active Savings", value: "₦ 84.2M", change: "+8.4%", icon: PiggyBank, color: "text-green-600", bg: "bg-green-50" },
-  { label: "Active Loans", value: "89", change: "-3%", icon: Landmark, color: "text-amber-600", bg: "bg-amber-50" },
-  { label: "Overdue Loans", value: "7", change: "+2", icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
-];
-
-const recentActivities = [
-  { color: "bg-green-500", text: "New member Fatima Hassan registered", time: "10 mins ago" },
-  { color: "bg-blue-500", text: "Loan #L2043 approved for ₦350,000", time: "25 mins ago" },
-  { color: "bg-amber-500", text: "Deposit of ₦150,000 recorded for Musa Ali", time: "1 hour ago" },
-  { color: "bg-red-500", text: "Overdue notice sent to 3 borrowers", time: "2 hours ago" },
-  { color: "bg-purple-500", text: "Staff leave request from Grace Ibe", time: "3 hours ago" },
-];
-
-const pendingTasks = [
-  { label: "Loan applications awaiting review", count: 5, to: "/loans", icon: ClipboardCheck },
-  { label: "Fund requests pending approval", count: 3, to: "/finance/fund-requests", icon: CreditCard },
-  { label: "Leave requests to review", count: 2, to: "/hr/leave-requests", icon: Calendar },
-  { label: "Member registrations to verify", count: 8, to: "/members", icon: UserCheck },
-];
-
-const staffAttendance = [
-  { name: "Aisha Mohammed", status: "Present", time: "08:15 AM" },
-  { name: "David Okafor", status: "Present", time: "08:30 AM" },
-  { name: "Grace Ibe", status: "On Leave", time: "—" },
-  { name: "James Udo", status: "Late", time: "09:45 AM" },
-];
+import { fetchDashboardStats, fetchAuditLog, fetchAttendance } from "../lib/db";
 
 export default function BranchManagerDashboard() {
   const { user } = useAuth();
+  const [stats, setStats] = useState<any>(null);
+  const [activity, setActivity] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    try {
+      setLoading(true);
+      const [dashStats, auditRes, attRecords] = await Promise.all([
+        fetchDashboardStats(),
+        fetchAuditLog({ page: 1, pageSize: 5 }),
+        fetchAttendance({ date: new Date().toISOString().slice(0, 10) }),
+      ]);
+      setStats(dashStats);
+      setActivity(auditRes.data);
+      setAttendance(attRecords);
+    } catch (err) {
+      console.error("Failed to load dashboard:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const fmt = (n: number) => {
+    if (n >= 1e9) return `₦ ${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `₦ ${(n / 1e6).toFixed(1)}M`;
+    return `₦ ${n.toLocaleString()}`;
+  };
+
+  const statCards = stats ? [
+    { label: "Branch Members", value: stats.totalMembers.toLocaleString(), icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Active Savings", value: fmt(stats.totalSavings), icon: PiggyBank, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Active Loans", value: String(stats.activeLoans), icon: Landmark, color: "text-amber-600", bg: "bg-amber-50" },
+    { label: "Total Staff", value: String(stats.totalStaff), icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
+  ] : [];
+
+  const pendingTasks = [
+    { label: "Loan applications awaiting review", count: stats?.pendingLoans ?? 0, to: "/loans", icon: ClipboardCheck },
+    { label: "Fund requests pending approval", count: 0, to: "/finance/fund-requests", icon: CreditCard },
+    { label: "Leave requests to review", count: 0, to: "/hr/leave-requests", icon: Calendar },
+    { label: "Member registrations to verify", count: 0, to: "/members", icon: UserCheck },
+  ];
 
   return (
     <div className="space-y-6">
@@ -68,7 +86,9 @@ export default function BranchManagerDashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s) => (
+        {loading ? (
+          <div className="col-span-4 text-center py-8"><Loader2 className="w-6 h-6 animate-spin text-green-600 mx-auto" /></div>
+        ) : statCards.map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className="flex items-center gap-2 mb-2">
               <div className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center`}>
@@ -78,9 +98,6 @@ export default function BranchManagerDashboard() {
             <p className="text-2xl font-bold text-navy-900">{s.value}</p>
             <div className="flex items-center justify-between mt-1">
               <p className="text-xs text-gray-400">{s.label}</p>
-              <span className={`text-xs font-medium ${s.change.startsWith("+") ? "text-green-600" : "text-red-500"}`}>
-                <TrendingUp className="inline w-3 h-3 mr-0.5" />{s.change}
-              </span>
             </div>
           </div>
         ))}
@@ -110,15 +127,21 @@ export default function BranchManagerDashboard() {
         <div className="bg-white rounded-xl border border-gray-100 p-6">
           <h2 className="text-lg font-bold text-navy-900 mb-4">Recent Activity</h2>
           <div className="space-y-4">
-            {recentActivities.map((a, i) => (
-              <div key={i} className="flex gap-3">
-                <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${a.color}`} />
+            {activity.length === 0 ? (
+              <p className="text-xs text-gray-400">No recent activity.</p>
+            ) : activity.map((a) => {
+              const mins = Math.floor((Date.now() - new Date(a.created_at).getTime()) / 60000);
+              const ago = mins < 60 ? `${mins} mins ago` : mins < 1440 ? `${Math.floor(mins / 60)} hours ago` : `${Math.floor(mins / 1440)} days ago`;
+              return (
+              <div key={a.id} className="flex gap-3">
+                <span className="mt-1.5 w-2 h-2 rounded-full shrink-0 bg-green-500" />
                 <div>
-                  <p className="text-sm text-navy-900">{a.text}</p>
-                  <p className="text-xs text-gray-400">{a.time}</p>
+                  <p className="text-sm text-navy-900">{a.user?.full_name || "System"} — {a.action} {a.entity_type}</p>
+                  <p className="text-xs text-gray-400">{ago}</p>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
@@ -139,18 +162,21 @@ export default function BranchManagerDashboard() {
               </tr>
             </thead>
             <tbody>
-              {staffAttendance.map((s, i) => (
-                <tr key={i} className="border-b border-gray-50 last:border-0">
-                  <td className="py-3 font-medium text-navy-900">{s.name}</td>
+              {attendance.length === 0 ? (
+                <tr><td colSpan={3} className="py-6 text-center text-gray-400 text-sm">No attendance records today.</td></tr>
+              ) : attendance.map((s: any) => (
+                <tr key={s.id} className="border-b border-gray-50 last:border-0">
+                  <td className="py-3 font-medium text-navy-900">{s.staff?.full_name || "—"}</td>
                   <td className="py-3">
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                      s.status === "Present" ? "bg-green-100 text-green-700" :
-                      s.status === "Late" ? "bg-amber-100 text-amber-700" :
+                      s.status === "present" ? "bg-green-100 text-green-700" :
+                      s.status === "late" ? "bg-amber-100 text-amber-700" :
+                      s.status === "leave" ? "bg-blue-100 text-blue-700" :
                       "bg-gray-100 text-gray-600"
-                    }`}>{s.status}</span>
+                    }`}>{s.status?.charAt(0).toUpperCase() + s.status?.slice(1)}</span>
                   </td>
                   <td className="py-3 text-gray-500 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />{s.time}
+                    <Clock className="w-3.5 h-3.5" />{s.clock_in ? new Date(s.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "—"}
                   </td>
                 </tr>
               ))}

@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus,
@@ -7,69 +8,59 @@ import {
   Info,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
+import { fetchFundRequests } from "../lib/db";
 
-/* ─── Request Data ─── */
-interface FundRequest {
-  id: string;
-  branch: string;
-  amount: string;
-  purpose: string;
-  status: "Pending" | "Approved" | "Rejected";
-  submitted: string;
-}
-
-const requests: FundRequest[] = [
-  {
-    id: "REQ-001",
-    branch: "Lagos Main",
-    amount: "₦500,000",
-    purpose: "Office Supplies & Stationery and...",
-    status: "Pending",
-    submitted: "Oct 24, 2023",
-  },
-  {
-    id: "REQ-001",
-    branch: "Lagos Main",
-    amount: "₦500,000",
-    purpose: "Office Supplies & Stationery",
-    status: "Pending",
-    submitted: "Oct 24, 2023",
-  },
-  {
-    id: "REQ-001",
-    branch: "Lagos Main",
-    amount: "₦500,000",
-    purpose: "Office Supplies & Stationery",
-    status: "Pending",
-    submitted: "Oct 24, 2023",
-  },
-  {
-    id: "REQ-001",
-    branch: "Lagos Main",
-    amount: "₦500,000",
-    purpose: "Office Supplies & Stationery",
-    status: "Pending",
-    submitted: "Oct 24, 2023",
-  },
-];
-
-const statusBadge = (status: FundRequest["status"]) => {
+const statusBadge = (status: string) => {
   const styles: Record<string, string> = {
-    Pending: "bg-amber-100 text-amber-700",
-    Approved: "bg-green-100 text-green-700",
-    Rejected: "bg-red-100 text-red-600",
+    pending: "bg-amber-100 text-amber-700",
+    approved: "bg-green-100 text-green-700",
+    rejected: "bg-red-100 text-red-600",
   };
   return (
-    <span
-      className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${styles[status]}`}
-    >
+    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold capitalize ${styles[status] ?? "bg-gray-100 text-gray-600"}`}>
       {status}
     </span>
   );
 };
 
 export default function BranchFundRequestsPage() {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [totalEntries, setTotalEntries] = useState(0);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [approvedTotal, setApprovedTotal] = useState(0);
+  const perPage = 10;
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const filters: any = { page, pageSize: perPage };
+        if (statusFilter) filters.status = statusFilter;
+        const { data, count } = await fetchFundRequests(filters);
+        setRequests(data);
+        setTotalEntries(count);
+      } catch {}
+      setLoading(false);
+    })();
+  }, [page, statusFilter]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { count } = await fetchFundRequests({ status: "pending" });
+        setPendingCount(count);
+        const { data } = await fetchFundRequests({ status: "approved", pageSize: 1000 });
+        setApprovedTotal(data.reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0));
+      } catch {}
+    })();
+  }, []);
+
+  const totalPages = Math.ceil(totalEntries / perPage);
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
@@ -99,7 +90,7 @@ export default function BranchFundRequestsPage() {
               Pending
             </p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">12 Requests</p>
+          <p className="text-2xl font-bold text-navy-900">{pendingCount} Requests</p>
           <p className="text-xs text-gray-400 mt-1">
             Requires immediate review
           </p>
@@ -113,7 +104,7 @@ export default function BranchFundRequestsPage() {
               Approved
             </p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">₦4,250,000</p>
+          <p className="text-2xl font-bold text-navy-900">₦{approvedTotal.toLocaleString()}</p>
           <p className="text-xs text-gray-400 mt-1">
             Total disbursed this month
           </p>
@@ -164,57 +155,22 @@ export default function BranchFundRequestsPage() {
               </tr>
             </thead>
             <tbody>
-              {requests.map((req, i) => (
-                <tr
-                  key={i}
-                  className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
-                >
-                  {/* Request ID */}
-                  <td className="px-6 py-4">
-                    <p className="text-sm font-medium text-navy-900">
-                      {req.id}
-                    </p>
-                  </td>
-
-                  {/* Branch */}
-                  <td className="px-4 py-4">
-                    <p className="text-sm text-gray-600">{req.branch}</p>
-                  </td>
-
-                  {/* Amount */}
-                  <td className="px-4 py-4">
-                    <p className="text-sm font-semibold text-navy-900">
-                      {req.amount}
-                    </p>
-                  </td>
-
-                  {/* Purpose */}
-                  <td className="px-4 py-4">
-                    <p className="text-sm text-gray-600 truncate max-w-[200px]">
-                      {req.purpose}
-                    </p>
-                  </td>
-
-                  {/* Status */}
+              {loading ? (
+                <tr><td colSpan={7} className="py-12 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" /></td></tr>
+              ) : requests.length === 0 ? (
+                <tr><td colSpan={7} className="py-12 text-center text-sm text-gray-400">No fund requests found</td></tr>
+              ) : requests.map((req, i) => (
+                <tr key={req.id ?? i} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                  <td className="px-6 py-4"><p className="text-sm font-medium text-navy-900">#{req.id?.slice(0,8)}</p></td>
+                  <td className="px-4 py-4"><p className="text-sm text-gray-600">{req.branch?.name ?? '—'}</p></td>
+                  <td className="px-4 py-4"><p className="text-sm font-semibold text-navy-900">₦{Number(req.amount).toLocaleString()}</p></td>
+                  <td className="px-4 py-4"><p className="text-sm text-gray-600 truncate max-w-[200px]">{req.purpose}</p></td>
                   <td className="px-4 py-4">{statusBadge(req.status)}</td>
-
-                  {/* Submitted */}
-                  <td className="px-4 py-4">
-                    <p className="text-sm text-gray-600">{req.submitted}</p>
-                  </td>
-
-                  {/* Actions */}
+                  <td className="px-4 py-4"><p className="text-sm text-gray-600">{new Date(req.created_at).toLocaleDateString()}</p></td>
                   <td className="px-4 py-4">
                     <div className="flex items-center justify-end gap-2">
-                      <Link
-                        to={`/finance/fund-requests/${req.id}/review`}
-                        className="text-xs font-bold text-navy-900 hover:text-green-600 transition-colors tracking-wide"
-                      >
-                        REVIEW REQUEST
-                      </Link>
-                      <button className="p-1 text-gray-400 hover:text-navy-900 transition-colors">
-                        <Info className="w-4 h-4" />
-                      </button>
+                      <Link to={`/finance/fund-requests/${req.id}/review`} className="text-xs font-bold text-navy-900 hover:text-green-600 transition-colors tracking-wide">REVIEW REQUEST</Link>
+                      <button className="p-1 text-gray-400 hover:text-navy-900 transition-colors"><Info className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -226,23 +182,15 @@ export default function BranchFundRequestsPage() {
         {/* Pagination */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
           <p className="text-sm text-gray-500">
-            Showing <span className="font-semibold text-navy-900">1 to 4</span>{" "}
-            of <span className="font-semibold text-navy-900">24</span> requests
+            Showing <span className="font-semibold text-navy-900">{(page-1)*perPage+1} to {Math.min(page*perPage, totalEntries)}</span>{" "}
+            of <span className="font-semibold text-navy-900">{totalEntries}</span> requests
           </p>
           <div className="flex items-center gap-1">
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors">
+            <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1} className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-50">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg bg-navy-900 text-white text-sm font-semibold">
-              1
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-colors">
-              2
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-colors">
-              3
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors">
+            <span className="w-8 h-8 flex items-center justify-center rounded-lg bg-navy-900 text-white text-sm font-semibold">{page}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page>=totalPages} className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-50">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useCallback } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Search,
   ChevronDown,
@@ -7,28 +7,79 @@ import {
   XCircle,
   Info,
   CreditCard,
+  Loader2,
 } from "lucide-react";
+import { fetchLoanApplications, fetchLoanRepayments, recordLoanRepayment } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function RecordLoanRepaymentPage() {
-  const [searchQuery, setSearchQuery] = useState("John Oladele");
-  const [memberFound, setMemberFound] = useState(true);
-  const [paymentAmount, setPaymentAmount] = useState("45000");
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedLoan, setSelectedLoan] = useState<any>(null);
+  const [recentPayments, setRecentPayments] = useState<any[]>([]);
+  const [paymentAmount, setPaymentAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Bank Transfer");
-  const [paymentDate, setPaymentDate] = useState("10/25/2023");
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split("T")[0]);
   const [referenceNumber, setReferenceNumber] = useState("");
   const [remarks, setRemarks] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
 
-  /* ─── Mock Member Data ─── */
-  const member = {
-    name: "John Oladele",
-    loanId: "FL-2023-001",
-    monthlyInstallment: 45000,
-    nextDueDate: "Oct 30, 2023",
-    loanBalance: 200000,
+  const handleSearch = useCallback(async () => {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    try {
+      const { data } = await fetchLoanApplications({ search: searchQuery, status: "disbursed", pageSize: 5 });
+      setSearchResults(data);
+    } catch { setSearchResults([]); }
+    setSearching(false);
+  }, [searchQuery]);
+
+  const selectLoan = async (loan: any) => {
+    setSelectedLoan(loan);
+    setSearchResults([]);
+    setSearchQuery(loan.loan_id);
+    setPaymentAmount(String(loan.monthly_repayment ?? ""));
+    try {
+      const { data } = await fetchLoanRepayments({ loan_id: loan.id, pageSize: 3 });
+      setRecentPayments(data);
+    } catch {}
   };
 
   const amount = parseFloat(paymentAmount.replace(/,/g, "")) || 0;
-  const newBalance = member.loanBalance - amount;
+  const loanBalance = selectedLoan ? Number(selectedLoan.total_repayable ?? 0) : 0;
+  const previouslyPaid = recentPayments.reduce((sum, r) => sum + Number(r.amount ?? 0), 0);
+  const currentBalance = loanBalance - previouslyPaid;
+  const newBalance = currentBalance - amount;
+
+  const handleSubmit = async () => {
+    if (!selectedLoan) { setError("Please select a loan"); return; }
+    if (amount <= 0) { setError("Please enter a valid amount"); return; }
+    setError("");
+    setSubmitting(true);
+    try {
+      await recordLoanRepayment({
+        loan_id: selectedLoan.id,
+        member_id: selectedLoan.member_id,
+        amount,
+        payment_method: paymentMethod,
+        reference: referenceNumber,
+        notes: remarks,
+        recorded_by: profile?.id ?? "",
+      });
+      setSuccess(true);
+      setTimeout(() => navigate("/loans/repayments"), 1500);
+    } catch (e: any) {
+      setError(e.message || "Failed to record payment");
+    }
+    setSubmitting(false);
+  };
+
+  const memberName = selectedLoan?.member ? `${selectedLoan.member.first_name} ${selectedLoan.member.last_name}` : "";
 
   return (
     <div className="space-y-6">
@@ -53,22 +104,50 @@ export default function RecordLoanRepaymentPage() {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="John Oladele"
+              placeholder="Enter loan ID e.g. LN-2024-001"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
             />
+            {searchResults.length > 0 && (
+              <div className="absolute z-20 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                {searchResults.map(l => {
+                  const name = l.member ? `${l.member.first_name} ${l.member.last_name}` : "N/A";
+                  return (
+                    <button key={l.id} onClick={() => selectLoan(l)} className="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm">
+                      {l.loan_id} — {name} — ₦{Number(l.amount_requested).toLocaleString()}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <button
-            onClick={() => setMemberFound(true)}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+            onClick={handleSearch}
+            disabled={searching}
+            className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
           >
+            {searching && <Loader2 className="w-4 h-4 animate-spin" />}
             Search
           </button>
         </div>
       </div>
 
-      {memberFound && (
+      {error && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+
+      {success && (
+        <div className="flex items-center gap-2 px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+          <CheckCircle2 className="w-4 h-4 text-green-600" />
+          <p className="text-sm text-green-700">Payment recorded successfully! Redirecting...</p>
+        </div>
+      )}
+
+      {selectedLoan && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* ════════════════════════════════════════
               LEFT COLUMN (2/3)
@@ -94,10 +173,10 @@ export default function RecordLoanRepaymentPage() {
                         ACTIVE LOAN
                       </span>
                       <h2 className="text-lg font-bold text-navy-900">
-                        Member: {member.name}
+                        Member: {memberName}
                       </h2>
                       <p className="text-sm text-blue-500">
-                        Loan ID: {member.loanId}
+                        Loan ID: {selectedLoan.loan_id}
                       </p>
                     </div>
                     <div className="text-right">
@@ -105,7 +184,7 @@ export default function RecordLoanRepaymentPage() {
                         Loan Balance
                       </p>
                       <p className="text-2xl font-bold text-navy-900">
-                        ₦ {member.loanBalance.toLocaleString()}
+                        ₦ {currentBalance.toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -116,13 +195,13 @@ export default function RecordLoanRepaymentPage() {
                         Monthly Installment
                       </p>
                       <p className="text-sm font-bold text-navy-900">
-                        ₦{member.monthlyInstallment.toLocaleString()}
+                        ₦{Number(selectedLoan.monthly_repayment ?? 0).toLocaleString()}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-400">Next Due Date</p>
-                      <p className="text-sm font-bold text-red-500">
-                        {member.nextDueDate}
+                      <p className="text-xs text-gray-400">Disbursement Date</p>
+                      <p className="text-sm font-bold text-navy-900">
+                        {selectedLoan.disbursement_date ? new Date(selectedLoan.disbursement_date).toLocaleDateString() : '—'}
                       </p>
                     </div>
                   </div>
@@ -236,7 +315,7 @@ export default function RecordLoanRepaymentPage() {
                     Previous Balance
                   </span>
                   <span className="text-sm font-bold">
-                    ₦{member.loanBalance.toLocaleString()}
+                    ₦{currentBalance.toLocaleString()}
                   </span>
                 </div>
 
@@ -270,9 +349,13 @@ export default function RecordLoanRepaymentPage() {
             </div>
 
             {/* ── Action Buttons ── */}
-            <button className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors">
-              <CheckCircle2 className="w-4 h-4" />
-              Record Payment
+            <button
+              onClick={handleSubmit}
+              disabled={submitting}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {submitting ? 'Recording...' : 'Record Payment'}
             </button>
 
             <Link to="/loans/repayments" className="w-full flex items-center justify-center gap-2 py-3 border border-gray-200 text-gray-500 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
@@ -287,29 +370,22 @@ export default function RecordLoanRepaymentPage() {
               </h3>
 
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-navy-900">
-                      ₦ 45,000
-                    </p>
-                    <p className="text-xs text-gray-400">Sept 28, 2023</p>
+                {recentPayments.length === 0 && (
+                  <p className="text-xs text-gray-400">No recent payments</p>
+                )}
+                {recentPayments.map(rp => (
+                  <div key={rp.id} className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-navy-900">
+                        ₦ {Number(rp.amount).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-gray-400">{new Date(rp.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <span className="text-[10px] font-bold tracking-wider text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-200">
+                      {rp.payment_method ?? 'Paid'}
+                    </span>
                   </div>
-                  <span className="text-[10px] font-bold tracking-wider text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-200">
-                    Verified
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-navy-900">
-                      ₦ 45,000
-                    </p>
-                    <p className="text-xs text-gray-400">Aug 30, 2023</p>
-                  </div>
-                  <span className="text-[10px] font-bold tracking-wider text-green-600 bg-green-50 px-2 py-0.5 rounded border border-green-200">
-                    Verified
-                  </span>
-                </div>
+                ))}
               </div>
             </div>
           </div>

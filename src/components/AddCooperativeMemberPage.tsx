@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   User,
@@ -9,10 +9,15 @@ import {
   Heart,
   Users,
   Upload,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
+import { createMember, generateMemberId, fetchBranches, fetchGroups } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function AddCooperativeMemberPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   /* ── Personal Information ── */
   const [firstName, setFirstName] = useState("");
@@ -30,23 +35,69 @@ export default function AddCooperativeMemberPage() {
   const [idFile, setIdFile] = useState<File | null>(null);
 
   /* ── Cooperative Details ── */
+  const [memberId, setMemberId] = useState("");
   const [branch, setBranch] = useState("");
   const [group, setGroup] = useState("");
-  const [joinDate, setJoinDate] = useState("");
+  const [joinDate, setJoinDate] = useState(new Date().toISOString().split("T")[0]);
 
   /* ── Savings Setup ── */
   const [initialDeposit, setInitialDeposit] = useState("0.00");
-  const [contributionType, setContributionType] = useState("Monthly");
+  const [contributionType, setContributionType] = useState("monthly");
 
   /* ── Next of Kin ── */
   const [kinName, setKinName] = useState("");
   const [kinRelationship, setKinRelationship] = useState("");
   const [kinPhone, setKinPhone] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  /* ── State ── */
+  const [branches, setBranches] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    generateMemberId().then(setMemberId).catch(console.error);
+    fetchBranches().then(setBranches).catch(console.error);
+    fetchGroups().then(r => setGroups(r.data)).catch(console.error);
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // submit logic here
-    navigate("/members");
+    setError("");
+    if (!firstName || !lastName || !phone) {
+      setError("Please fill in required fields: First Name, Last Name, Phone.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createMember({
+        member_id: memberId,
+        member_type: "cooperative",
+        first_name: firstName,
+        last_name: lastName,
+        gender,
+        date_of_birth: dob || null,
+        phone,
+        email,
+        address,
+        national_id: nationalId,
+        branch_id: branch || null,
+        group_id: group || null,
+        join_date: joinDate,
+        initial_deposit: parseFloat(initialDeposit) || 0,
+        contribution_type: contributionType,
+        nok_name: kinName,
+        nok_phone: kinPhone,
+        nok_relationship: kinRelationship,
+        created_by: user?.id,
+        status: "active",
+      });
+      navigate("/members");
+    } catch (err: any) {
+      setError(err.message || "Failed to create member.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   /* ── Reusable section heading ── */
@@ -81,6 +132,13 @@ export default function AddCooperativeMemberPage() {
 
   return (
     <form onSubmit={handleSubmit} className="max-w-3xl mx-auto space-y-8 pb-8">
+      {/* Error message */}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
       {/* ═══════════ Personal Information ═══════════ */}
       <section className="bg-white rounded-xl border border-gray-100 p-6">
         <SectionHeading icon={User} title="Personal Information" />
@@ -243,7 +301,7 @@ export default function AddCooperativeMemberPage() {
             <Label>Member ID</Label>
             <input
               type="text"
-              value="MBR-000245"
+              value={memberId}
               readOnly
               className="w-full px-4 py-2.5 border border-green-200 rounded-lg text-sm font-medium text-green-700 bg-green-50 cursor-not-allowed"
             />
@@ -259,9 +317,9 @@ export default function AddCooperativeMemberPage() {
                 className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
               >
                 <option value="">Select Branch</option>
-                <option>Main Branch</option>
-                <option>North Branch</option>
-                <option>South Sector</option>
+                {branches.map((b: any) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
               </select>
               <svg
                 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
@@ -289,10 +347,9 @@ export default function AddCooperativeMemberPage() {
                 className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
               >
                 <option value="">Select Group</option>
-                <option>Farmers Group A</option>
-                <option>Retail Traders</option>
-                <option>Poultry Cluster</option>
-                <option>Micro-Entrepreneurs</option>
+                {groups.map((g: any) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
               </select>
               <svg
                 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
@@ -330,10 +387,10 @@ export default function AddCooperativeMemberPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {/* Initial Deposit */}
           <div>
-            <Label>Initial Deposit (USD)</Label>
+            <Label>Initial Deposit (₦)</Label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">
-                $
+                ₦
               </span>
               <input
                 type="text"
@@ -350,21 +407,21 @@ export default function AddCooperativeMemberPage() {
             <div className="flex gap-3 mt-0.5">
               <button
                 type="button"
-                onClick={() => setContributionType("Monthly")}
+                onClick={() => setContributionType("monthly")}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors ${
-                  contributionType === "Monthly"
+                  contributionType === "monthly"
                     ? "border-navy-900 bg-navy-900/5 text-navy-900"
                     : "border-gray-200 text-gray-500 hover:border-gray-300"
                 }`}
               >
                 <span
                   className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    contributionType === "Monthly"
+                    contributionType === "monthly"
                       ? "border-navy-900"
                       : "border-gray-300"
                   }`}
                 >
-                  {contributionType === "Monthly" && (
+                  {contributionType === "monthly" && (
                     <span className="w-2 h-2 rounded-full bg-navy-900" />
                   )}
                 </span>
@@ -373,21 +430,21 @@ export default function AddCooperativeMemberPage() {
 
               <button
                 type="button"
-                onClick={() => setContributionType("Weekly")}
+                onClick={() => setContributionType("weekly")}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors ${
-                  contributionType === "Weekly"
+                  contributionType === "weekly"
                     ? "border-navy-900 bg-navy-900/5 text-navy-900"
                     : "border-gray-200 text-gray-500 hover:border-gray-300"
                 }`}
               >
                 <span
                   className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    contributionType === "Weekly"
+                    contributionType === "weekly"
                       ? "border-navy-900"
                       : "border-gray-300"
                   }`}
                 >
-                  {contributionType === "Weekly" && (
+                  {contributionType === "weekly" && (
                     <span className="w-2 h-2 rounded-full bg-navy-900" />
                   )}
                 </span>
@@ -451,10 +508,11 @@ export default function AddCooperativeMemberPage() {
         </Link>
         <button
           type="submit"
-          className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+          disabled={submitting}
+          className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-60"
         >
-          <Users className="w-4 h-4" />
-          Create Member
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+          {submitting ? "Creating…" : "Create Member"}
         </button>
       </div>
     </form>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Search,
@@ -6,30 +6,84 @@ import {
   Save,
   PlusCircle,
   CircleEqual,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
+import { fetchMembers, fetchSavingsAccount, recordDeposit } from "../lib/db";
+import { useAuth } from "../auth/AuthContext";
 
 export default function RecordDepositPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   /* ── Member Search ── */
-  const [memberQuery, setMemberQuery] = useState("Ajibola Christopher");
-  const [memberFound, setMemberFound] = useState(true);
+  const [memberQuery, setMemberQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [currentBalance, setCurrentBalance] = useState(0);
+  const [searching, setSearching] = useState(false);
 
   /* ── Deposit Details ── */
-  const [amount, setAmount] = useState("50000");
-  const [paymentMethod, setPaymentMethod] = useState("Bank Transfer");
-  const [txnDate, setTxnDate] = useState("2023-10-27");
-  const [refNumber, setRefNumber] = useState("TRX-992031-AB");
+  const [amount, setAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState("bank_transfer");
+  const [txnDate, setTxnDate] = useState(new Date().toISOString().split("T")[0]);
+  const [refNumber, setRefNumber] = useState("");
   const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   /* ── Balance calc ── */
-  const currentBalance = 350000;
   const depositAmount = Number(amount) || 0;
   const newBalance = currentBalance + depositAmount;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Search members
+  useEffect(() => {
+    if (memberQuery.length < 2) { setSearchResults([]); return; }
+    const timeout = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const { data } = await fetchMembers({ search: memberQuery, pageSize: 5 });
+        setSearchResults(data);
+      } catch { setSearchResults([]); }
+      setSearching(false);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [memberQuery]);
+
+  const selectMember = async (member: any) => {
+    setSelectedMember(member);
+    setSearchResults([]);
+    setMemberQuery(`${member.first_name} ${member.last_name}`);
+    try {
+      const account = await fetchSavingsAccount(member.id);
+      setCurrentBalance(Number(account?.balance ?? 0));
+    } catch {
+      setCurrentBalance(0);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/savings");
+    setError("");
+    if (!selectedMember) { setError("Please select a member."); return; }
+    if (!depositAmount || depositAmount <= 0) { setError("Please enter a valid amount."); return; }
+    setSubmitting(true);
+    try {
+      await recordDeposit({
+        member_id: selectedMember.id,
+        amount: depositAmount,
+        payment_method: paymentMethod,
+        reference: refNumber,
+        notes,
+        recorded_by: user!.id,
+        branch_id: selectedMember.branch_id ?? undefined,
+      });
+      navigate("/savings");
+    } catch (err: any) {
+      setError(err.message || "Failed to record deposit.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -40,6 +94,13 @@ export default function RecordDepositPage() {
       </h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+            <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
         {/* ═══════════ Member Search ═══════════ */}
         <div>
           <h2 className="text-sm font-bold text-navy-900 mb-3">
@@ -53,34 +114,42 @@ export default function RecordDepositPage() {
               value={memberQuery}
               onChange={(e) => {
                 setMemberQuery(e.target.value);
-                setMemberFound(e.target.value.length > 2);
+                if (selectedMember) setSelectedMember(null);
               }}
               className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
             />
+            {searching && <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />}
           </div>
+          {searchResults.length > 0 && !selectedMember && (
+            <div className="mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto z-10 relative">
+              {searchResults.map((m: any) => (
+                <button key={m.id} type="button" onClick={() => selectMember(m)}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                >
+                  <p className="text-sm font-semibold text-navy-900">{m.first_name} {m.last_name}</p>
+                  <p className="text-xs text-gray-400">{m.member_id} · {m.phone}</p>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* ═══════════ Selected Member Card ═══════════ */}
-        {memberFound && memberQuery && (
+        {selectedMember && (
           <div className="bg-white rounded-xl border border-gray-100 p-5 flex items-center justify-between">
             <div className="flex items-center gap-4">
-              {/* Avatar */}
-              <div className="w-12 h-12 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
-                <img
-                  src="https://ui-avatars.com/api/?name=Ajibola+Christopher&size=96&background=cccccc&color=1a2744&bold=true"
-                  alt="Ajibola Christopher"
-                  className="w-full h-full object-cover"
-                />
+              <div className="w-12 h-12 rounded-full bg-navy-900 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                {selectedMember.first_name?.[0]}{selectedMember.last_name?.[0]}
               </div>
               <div>
                 <p className="text-[10px] tracking-[0.1em] uppercase text-green-600 font-bold">
-                  Active Member
+                  {selectedMember.status === "active" ? "Active Member" : selectedMember.status}
                 </p>
                 <p className="text-base font-bold text-navy-900">
-                  Ajibola Christopher
+                  {selectedMember.first_name} {selectedMember.last_name}
                 </p>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  MBR-000234 · Lagos Mainland
+                  {selectedMember.member_id} · {selectedMember.branch?.name ?? ""}
                 </p>
               </div>
             </div>
@@ -90,7 +159,7 @@ export default function RecordDepositPage() {
                 Current Balance
               </p>
               <p className="text-2xl font-bold text-navy-900">
-                ₦{currentBalance.toLocaleString()}.00
+                ₦{currentBalance.toLocaleString()}
               </p>
             </div>
           </div>
@@ -131,11 +200,11 @@ export default function RecordDepositPage() {
                   onChange={(e) => setPaymentMethod(e.target.value)}
                   className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
                 >
-                  <option>Bank Transfer</option>
-                  <option>Cash</option>
-                  <option>Mobile Money</option>
-                  <option>Cheque</option>
-                  <option>POS</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="cash">Cash</option>
+                  <option value="mobile_money">Mobile Money</option>
+                  <option value="cheque">Cheque</option>
+                  <option value="online">Online</option>
                 </select>
                 <svg
                   className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
@@ -258,10 +327,11 @@ export default function RecordDepositPage() {
           </Link>
           <button
             type="submit"
-            className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+            disabled={submitting || !selectedMember}
+            className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Save className="w-4 h-4" />
-            Save Deposit
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {submitting ? 'Saving…' : 'Save Deposit'}
           </button>
         </div>
       </form>

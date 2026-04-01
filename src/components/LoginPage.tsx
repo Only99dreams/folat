@@ -10,38 +10,37 @@ import {
   Landmark,
   ArrowRight,
   AlertCircle,
-  Shield,
+  Loader2,
 } from "lucide-react";
-import { Link, useNavigate, Navigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import heroImg from "../assets/hero.png";
-import { useAuth, DEMO_USERS } from "../auth/AuthContext";
+import { useAuth } from "../auth/AuthContext";
 
 export default function LoginPage() {
+  const { login, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const { login, isAuthenticated } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [keepLoggedIn, setKeepLoggedIn] = useState(false);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   // Redirect if already logged in
+  if (authLoading) return null;
   if (isAuthenticated) return <Navigate to="/dashboard" replace />;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (login(email, password)) {
-      navigate("/dashboard");
+    setSubmitting(true);
+    const result = await login(email, password);
+    setSubmitting(false);
+    if (!result.success) {
+      setError(result.error ?? "Invalid email or password.");
     } else {
-      setError("Invalid email or password. Use a demo account below.");
+      navigate("/dashboard", { replace: true });
     }
-  };
-
-  const fillDemo = (demoEmail: string, demoPassword: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPassword);
-    setError("");
   };
 
   return (
@@ -112,30 +111,6 @@ export default function LoginPage() {
                 <p className="text-gray-400 text-sm mt-1">
                   Log in to your staff or member account
                 </p>
-              </div>
-
-              {/* Demo accounts panel */}
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-                <p className="text-sm font-medium text-green-800 mb-2 flex items-center gap-1.5">
-                  <Shield className="w-4 h-4" /> Demo Accounts — Click to auto-fill
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {DEMO_USERS.map((d) => (
-                    <button
-                      key={d.email}
-                      type="button"
-                      onClick={() => fillDemo(d.email, d.password)}
-                      className={`text-left px-3 py-2 rounded-lg border transition-colors text-xs ${
-                        email === d.email
-                          ? "border-green-500 bg-green-100"
-                          : "border-green-200 hover:bg-green-100/70"
-                      }`}
-                    >
-                      <p className="font-semibold text-green-900">{d.user.roleLabel}</p>
-                      <p className="text-green-700 font-mono">{d.email}</p>
-                    </button>
-                  ))}
-                </div>
               </div>
 
               {/* Error message */}
@@ -228,10 +203,20 @@ export default function LoginPage() {
                 {/* Submit button */}
                 <button
                   type="submit"
-                  className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all"
+                  disabled={submitting}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Log In
-                  <ArrowRight className="w-4 h-4" />
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Signing in…
+                    </>
+                  ) : (
+                    <>
+                      Log In
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </form>
 

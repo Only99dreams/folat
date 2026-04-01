@@ -1,22 +1,64 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Search,
   CalendarDays,
   Send,
   UploadCloud,
+  Loader2,
 } from "lucide-react";
+import { fetchStaff, createLeaveRequest, uploadFile } from "../lib/db";
 
 export default function LeaveRequestFormPage() {
+  const navigate = useNavigate();
+  const [staffList, setStaffList] = useState<any[]>([]);
+  const [staffSearch, setStaffSearch] = useState("");
+  const [selectedStaff, setSelectedStaff] = useState<any>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [supportDoc, setSupportDoc] = useState<File | null>(null);
   const [form, setForm] = useState({
-    staffName: "John Doe (EMP-042)",
     leaveType: "",
     startDate: "",
     endDate: "",
     reason: "",
   });
 
+  useEffect(() => { fetchStaff().then(setStaffList).catch(() => {}); }, []);
+
+  const filteredStaff = staffSearch.length >= 2
+    ? staffList.filter(s => `${s.first_name} ${s.last_name} ${s.staff_id || ""}`.toLowerCase().includes(staffSearch.toLowerCase())).slice(0, 8)
+    : [];
+
   const update = (field: string, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+
+  const totalDays = form.startDate && form.endDate
+    ? Math.max(Math.ceil((new Date(form.endDate).getTime() - new Date(form.startDate).getTime()) / (1000*60*60*24)) + 1, 0)
+    : 0;
+
+  const handleSubmit = async () => {
+    if (!selectedStaff || !form.leaveType || !form.startDate || !form.endDate) {
+      setError("Please fill all required fields"); return;
+    }
+    setError(""); setSubmitting(true);
+    try {
+      const leaveData = await createLeaveRequest({
+        staff_id: selectedStaff.id,
+        leave_type: form.leaveType,
+        start_date: form.startDate,
+        end_date: form.endDate,
+        days: totalDays,
+        reason: form.reason,
+      });
+      if (supportDoc && leaveData?.id) {
+        await uploadFile("leave-documents", `${leaveData.id}/${supportDoc.name}`, supportDoc);
+      }
+      navigate("/hr/leave-requests");
+    } catch (e: any) { setError(e.message || "Failed to submit leave request"); }
+    setSubmitting(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -88,10 +130,22 @@ export default function LeaveRequestFormPage() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
-                value={form.staffName}
-                onChange={(e) => update("staffName", e.target.value)}
+                value={selectedStaff ? `${selectedStaff.first_name} ${selectedStaff.last_name} (${selectedStaff.staff_id || ""})` : staffSearch}
+                onChange={(e) => { setStaffSearch(e.target.value); setSelectedStaff(null); setShowDropdown(true); }}
+                onFocus={() => setShowDropdown(true)}
+                placeholder="Search staff by name or ID..."
                 className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm text-navy-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
+              {showDropdown && filteredStaff.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
+                  {filteredStaff.map(s => (
+                    <button key={s.id} type="button" onClick={() => { setSelectedStaff(s); setShowDropdown(false); setStaffSearch(""); }}
+                      className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors">
+                      {s.first_name} {s.last_name} {s.staff_id ? `(${s.staff_id})` : ""}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -108,9 +162,11 @@ export default function LeaveRequestFormPage() {
               <option value="">Select type</option>
               <option value="annual">Annual Leave</option>
               <option value="sick">Sick Leave</option>
-              <option value="casual">Casual Leave</option>
-              <option value="emergency">Emergency Leave</option>
+              <option value="compassionate">Compassionate Leave</option>
               <option value="maternity">Maternity Leave</option>
+              <option value="paternity">Paternity Leave</option>
+              <option value="study">Study Leave</option>
+              <option value="unpaid">Unpaid Leave</option>
             </select>
           </div>
 
@@ -151,7 +207,7 @@ export default function LeaveRequestFormPage() {
               <p className="text-[10px] tracking-[0.1em] uppercase text-green-600 font-semibold">
                 Total Duration
               </p>
-              <p className="text-lg font-bold text-navy-900">0 Days</p>
+              <p className="text-lg font-bold text-navy-900">{totalDays} Days</p>
             </div>
           </div>
           <p className="text-xs text-gray-400">
@@ -178,27 +234,30 @@ export default function LeaveRequestFormPage() {
           <label className="block text-sm font-semibold text-navy-900 mb-2">
             Supporting Documents (Optional)
           </label>
-          <div className="border-2 border-dashed border-gray-200 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50/50 transition-colors">
+          <label className="border-2 border-dashed border-gray-200 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50/50 transition-colors">
             <UploadCloud className="w-10 h-10 text-gray-300 mb-3" />
             <p className="text-sm font-semibold text-navy-900">
-              Click to upload or drag and drop
+              {supportDoc ? supportDoc.name : "Click to upload or drag and drop"}
             </p>
             <p className="text-xs text-blue-500 mt-1">
               PDF, JPG or PNG (MAX. 5MB)
             </p>
-          </div>
+            <input type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={(e) => setSupportDoc(e.target.files?.[0] ?? null)} />
+          </label>
           <p className="text-xs text-gray-400 mt-2">
             Example: Medical reports for sick leave, travel itineraries, etc.
           </p>
         </div>
 
+        {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+
         {/* Buttons */}
         <div className="flex items-center justify-end gap-3 pt-2">
-          <button className="px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            Save as Draft
+          <button onClick={() => navigate("/hr/leave-requests")} className="px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+            Cancel
           </button>
-          <button className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
-            <Send className="w-4 h-4" />
+          <button onClick={handleSubmit} disabled={submitting} className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors disabled:opacity-50">
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             Submit Application
           </button>
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   ChevronDown,
@@ -11,96 +11,28 @@ import {
   RotateCcw,
   Calendar,
   SlidersHorizontal,
+  Loader2,
 } from "lucide-react";
+import { fetchSavingsTransactions, fetchBranches } from "../lib/db";
 
-/* ─── Transaction Data ─── */
-interface Transaction {
-  txId: string;
-  date: string;
-  time: string;
-  name: string;
-  memberId: string;
-  branch: string;
-  type: "DEPOSIT" | "WITHDRAWAL" | "ADJUSTMENT";
-  amount: string;
-  amountColor: string;
-  balance: string;
-  recordedBy: string;
-}
-
-const transactions: Transaction[] = [
-  {
-    txId: "#TX-89211",
-    date: "Oct 24, 2023",
-    time: "14:20 PM",
-    name: "Sarah Jenkins",
-    memberId: "M-00421",
-    branch: "Main Office",
-    type: "DEPOSIT",
-    amount: "$1,250.00",
-    amountColor: "text-green-600",
-    balance: "$14,580.00",
-    recordedBy: "Admin_Mark",
-  },
-  {
-    txId: "#TX-89210",
-    date: "Oct 24, 2023",
-    time: "11:05 AM",
-    name: "Michael Ross",
-    memberId: "M-00892",
-    branch: "North Branch",
-    type: "WITHDRAWAL",
-    amount: "-$500.00",
-    amountColor: "text-red-500",
-    balance: "$2,100.00",
-    recordedBy: "Cashier_Sue",
-  },
-  {
-    txId: "#TX-89209",
-    date: "Oct 23, 2023",
-    time: "16:45 PM",
-    name: "Lydia Vance",
-    memberId: "M-00115",
-    branch: "West Side Hub",
-    type: "ADJUSTMENT",
-    amount: "$50.00",
-    amountColor: "text-green-600",
-    balance: "$8,450.00",
-    recordedBy: "Admin_Mark",
-  },
-  {
-    txId: "#TX-89208",
-    date: "Oct 23, 2023",
-    time: "09:12 AM",
-    name: "James Thorne",
-    memberId: "M-00562",
-    branch: "Main Office",
-    type: "DEPOSIT",
-    amount: "$2,000.00",
-    amountColor: "text-green-600",
-    balance: "$45,000.00",
-    recordedBy: "Cashier_Sam",
-  },
-];
-
-const typeBadge = (type: Transaction["type"]) => {
+const typeBadge = (type: string) => {
   switch (type) {
-    case "DEPOSIT":
+    case "deposit":
       return (
         <span className="inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider bg-green-100 text-green-700">
           DEPOSIT
         </span>
       );
-    case "WITHDRAWAL":
+    case "withdrawal":
       return (
         <span className="inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider bg-red-100 text-red-600">
           WITHDRAWAL
         </span>
       );
-    case "ADJUSTMENT":
+    default:
       return (
         <span className="inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider bg-amber-100 text-amber-700">
-          ADJUSTMENT
+          {type?.toUpperCase()}
         </span>
       );
   }
@@ -108,13 +40,38 @@ const typeBadge = (type: Transaction["type"]) => {
 
 export default function SavingsTransactionsPage() {
   const [search, setSearch] = useState("");
-  const [branchFilter, setBranchFilter] = useState("All Branches");
-  const [typeFilter, setTypeFilter] = useState("Transaction Type");
+  const [branchFilter, setBranchFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [totalTransactions, setTotalTransactions] = useState(0);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const totalTransactions = 124;
-  const perPage = 4;
-  const totalPages = 31;
+  const perPage = 20;
+  const totalPages = Math.max(1, Math.ceil(totalTransactions / perPage));
+
+  useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
+
+  const loadTransactions = async () => {
+    setLoading(true);
+    try {
+      const { data, count } = await fetchSavingsTransactions({
+        search: search || undefined,
+        branch_id: branchFilter || undefined,
+        type: typeFilter || undefined,
+        page: currentPage,
+        pageSize: perPage,
+      });
+      setTransactions(data);
+      setTotalTransactions(count);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  useEffect(() => { loadTransactions(); }, [currentPage]);
+
+  const handleApplyFilters = () => { setCurrentPage(1); loadTransactions(); };
 
   return (
     <div className="space-y-6">
@@ -167,10 +124,10 @@ export default function SavingsTransactionsPage() {
               onChange={(e) => setBranchFilter(e.target.value)}
               className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
             >
-              <option>All Branches</option>
-              <option>Main Office</option>
-              <option>North Branch</option>
-              <option>West Side Hub</option>
+              <option value="">All Branches</option>
+              {branches.map((b: any) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
@@ -182,10 +139,9 @@ export default function SavingsTransactionsPage() {
               onChange={(e) => setTypeFilter(e.target.value)}
               className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
             >
-              <option>Transaction Type</option>
-              <option>Deposit</option>
-              <option>Withdrawal</option>
-              <option>Adjustment</option>
+              <option value="">All Types</option>
+              <option value="deposit">Deposit</option>
+              <option value="withdrawal">Withdrawal</option>
             </select>
             <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
@@ -212,7 +168,7 @@ export default function SavingsTransactionsPage() {
           </div>
 
           {/* Apply Button */}
-          <button className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-lg text-sm font-semibold hover:bg-navy-800 transition-colors whitespace-nowrap">
+          <button onClick={handleApplyFilters} className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-lg text-sm font-semibold hover:bg-navy-800 transition-colors whitespace-nowrap">
             <SlidersHorizontal className="w-4 h-4" />
             Apply
           </button>
@@ -255,37 +211,43 @@ export default function SavingsTransactionsPage() {
               </tr>
             </thead>
             <tbody>
-              {transactions.map((txn, i) => (
+              {loading ? (
+                <tr><td colSpan={9} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" /></td></tr>
+              ) : transactions.length === 0 ? (
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400 text-sm">No transactions found</td></tr>
+              ) : transactions.map((txn: any) => {
+                const d = new Date(txn.created_at);
+                return (
                 <tr
-                  key={i}
+                  key={txn.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                 >
                   {/* TXID */}
                   <td className="px-6 py-5">
                     <p className="text-sm font-semibold text-navy-900">
-                      {txn.txId}
+                      {txn.transaction_id}
                     </p>
                   </td>
 
                   {/* Date */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-navy-900">{txn.date}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{txn.time}</p>
+                    <p className="text-sm text-navy-900">{d.toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                   </td>
 
                   {/* Member / ID */}
                   <td className="px-4 py-5">
                     <p className="text-sm font-semibold text-navy-900">
-                      {txn.name}
+                      {txn.member?.first_name} {txn.member?.last_name}
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {txn.memberId}
+                      {txn.member?.member_id}
                     </p>
                   </td>
 
                   {/* Branch */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-gray-600">{txn.branch}</p>
+                    <p className="text-sm text-gray-600">{txn.branch?.name ?? "—"}</p>
                   </td>
 
                   {/* Type */}
@@ -295,21 +257,21 @@ export default function SavingsTransactionsPage() {
 
                   {/* Amount */}
                   <td className="px-4 py-5 text-right">
-                    <p className={`text-sm font-semibold ${txn.amountColor}`}>
-                      {txn.amount}
+                    <p className={`text-sm font-semibold ${txn.type === "withdrawal" ? "text-red-500" : "text-green-600"}`}>
+                      {txn.type === "withdrawal" ? "-" : "+"}₦{Number(txn.amount).toLocaleString()}
                     </p>
                   </td>
 
                   {/* Balance */}
                   <td className="px-4 py-5 text-right">
                     <p className="text-sm font-medium text-navy-900">
-                      {txn.balance}
+                      ₦{Number(txn.balance_after).toLocaleString()}
                     </p>
                   </td>
 
                   {/* Recorded By */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-gray-600">{txn.recordedBy}</p>
+                    <p className="text-sm text-gray-600">{txn.recorder?.full_name ?? "—"}</p>
                   </td>
 
                   {/* Actions */}
@@ -330,7 +292,8 @@ export default function SavingsTransactionsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

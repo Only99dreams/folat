@@ -1,14 +1,37 @@
 import { useState } from "react";
-import { Mail, KeyRound, ArrowLeft } from "lucide-react";
+import { Mail, KeyRound, ArrowLeft, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
+import { supabase } from "../lib/supabase";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: send reset link
-    console.log({ email });
+    setError("");
+
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError("Please enter your email address.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+
+    setSubmitting(false);
+
+    if (resetError) {
+      setError(resetError.message);
+    } else {
+      setSent(true);
+    }
   };
 
   return (
@@ -49,33 +72,68 @@ export default function ForgotPasswordPage() {
               </p>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {/* Email / Staff ID */}
-              <div>
-                <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                  Email or Staff ID
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input
-                    type="text"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="e.g. alex@company.com or STF-123"
-                    className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl text-sm text-navy-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
-                  />
+            {/* Success state */}
+            {sent ? (
+              <div className="space-y-4">
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                  <p className="text-sm text-green-700">
+                    Password reset link sent! Check your inbox for <span className="font-semibold">{email}</span>.
+                  </p>
                 </div>
+                <p className="text-xs text-gray-400">Didn't get the email? Check your spam folder or try again.</p>
+                <button
+                  onClick={() => setSent(false)}
+                  className="text-sm font-medium text-green-600 hover:underline"
+                >
+                  Try a different email
+                </button>
               </div>
+            ) : (
+              /* Form */
+              <form onSubmit={handleSubmit} className="space-y-5">
+                {/* Error */}
+                {error && (
+                  <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                    <p className="text-sm text-red-600">{error}</p>
+                  </div>
+                )}
 
-              {/* Submit */}
-              <button
-                type="submit"
-                className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all"
-              >
-                Send Reset Link
-              </button>
-            </form>
+                {/* Email */}
+                <div>
+                  <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                    Email Address
+                  </label>
+                  <div className="relative">
+                    <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="e.g. alex@company.com"
+                      className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl text-sm text-navy-900 placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all"
+                    />
+                  </div>
+                </div>
+
+                {/* Submit */}
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Sending…
+                    </>
+                  ) : (
+                    "Send Reset Link"
+                  )}
+                </button>
+              </form>
+            )}
 
             {/* Back to Login */}
             <div className="text-center space-y-3 pt-2">

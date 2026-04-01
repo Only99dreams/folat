@@ -14,30 +14,30 @@ const salaryRoles: SalaryRole[] = [
   {
     role: "Loan Officer",
     basicSalary: "₦2,500.00",
-    allowances: "$500.00",
-    deductions: "$300.00",
-    netSalary: "$2,700.00",
+    allowances: "₦500.00",
+    deductions: "₦300.00",
+    netSalary: "₦2,700.00",
   },
   {
     role: "Accountant",
     basicSalary: "₦3,000.00",
-    allowances: "$600.00",
-    deductions: "$400.00",
-    netSalary: "$3,200.00",
+    allowances: "₦600.00",
+    deductions: "₦400.00",
+    netSalary: "₦3,200.00",
   },
   {
     role: "Branch Manager",
     basicSalary: "₦4,500.00",
     allowances: "₦1,000.00",
-    deductions: "$700.00",
-    netSalary: "$4,800.00",
+    deductions: "₦700.00",
+    netSalary: "₦4,800.00",
   },
 ];
 
 export default function SalaryStructurePage() {
   const [form, setForm] = useState({
     selectedRole: "Loan Officer",
-    currency: "USD (₦)",
+    currency: "NGN (₦)",
     basicSalary: "250,000",
     allowances: "50,000",
     taxDeductions: "3,000",
@@ -246,15 +246,15 @@ export default function SalaryStructurePage() {
           <div className="space-y-3 mb-6">
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-300">Basic Salary</p>
-              <p className="text-sm font-semibold">+$2,500.00</p>
+              <p className="text-sm font-semibold">+₦2,500.00</p>
             </div>
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-300">Total Allowances</p>
-              <p className="text-sm font-semibold">+$500.00</p>
+              <p className="text-sm font-semibold">+₦500.00</p>
             </div>
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-300">Total Deductions</p>
-              <p className="text-sm font-semibold text-red-400">-$300.00</p>
+              <p className="text-sm font-semibold text-red-400">-₦300.00</p>
             </div>
           </div>
 
@@ -263,7 +263,7 @@ export default function SalaryStructurePage() {
               Estimated Net Salary
             </p>
             <div className="flex items-end gap-3">
-              <p className="text-3xl font-bold">$2,700.00</p>
+              <p className="text-3xl font-bold">₦2,700.00</p>
               <span className="text-[10px] bg-white/10 px-2 py-1 rounded font-medium text-gray-300 mb-1">
                 Monthly Cycle
               </span>

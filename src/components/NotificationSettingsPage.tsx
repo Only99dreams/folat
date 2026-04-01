@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Save,
   Bell,
@@ -12,7 +12,10 @@ import {
   TrendingUp,
   Shield,
   Calendar,
+  Loader2,
 } from "lucide-react";
+import { fetchNotificationPreferences, updateNotificationPreferences } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 /* ─── Notification categories ─── */
 interface NotificationCategory {
@@ -23,7 +26,7 @@ interface NotificationCategory {
   channels: { email: boolean; sms: boolean; push: boolean };
 }
 
-const initialCategories: NotificationCategory[] = [
+const defaultCategories: NotificationCategory[] = [
   { id: "1", name: "Loan Alerts", description: "Loan applications, approvals, disbursements, and repayment reminders", icon: CreditCard, channels: { email: true, sms: true, push: true } },
   { id: "2", name: "Savings Alerts", description: "Deposit confirmations, withdrawal requests, and balance updates", icon: TrendingUp, channels: { email: true, sms: true, push: false } },
   { id: "3", name: "Member Updates", description: "New registrations, profile changes, and membership renewals", icon: Users, channels: { email: true, sms: false, push: true } },
@@ -35,13 +38,61 @@ const initialCategories: NotificationCategory[] = [
 ];
 
 export default function NotificationSettingsPage() {
-  const [categories, setCategories] = useState(initialCategories);
+  const { user } = useAuth();
+  const [categories, setCategories] = useState(defaultCategories);
   const [globalEmail, setGlobalEmail] = useState(true);
   const [globalSMS, setGlobalSMS] = useState(true);
   const [globalPush, setGlobalPush] = useState(true);
   const [quietHoursEnabled, setQuietHoursEnabled] = useState(true);
   const [quietStart, setQuietStart] = useState("22:00");
   const [quietEnd, setQuietEnd] = useState("07:00");
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [success, setSuccess] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (user) loadPrefs();
+  }, [user]);
+
+  async function loadPrefs() {
+    try {
+      setLoading(true);
+      const prefs = await fetchNotificationPreferences(user!.id);
+      if (prefs) {
+        setGlobalEmail(prefs.email_notifications ?? true);
+        setGlobalSMS(prefs.sms_notifications ?? false);
+        setGlobalPush(prefs.push_notifications ?? true);
+      }
+    } catch (err) {
+      console.error("Failed to load notification prefs:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!user) return;
+    try {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+      await updateNotificationPreferences(user.id, {
+        email_notifications: globalEmail,
+        sms_notifications: globalSMS,
+        push_notifications: globalPush,
+        loan_alerts: categories.find(c => c.id === "1")?.channels.email ?? true,
+        deposit_alerts: categories.find(c => c.id === "2")?.channels.email ?? true,
+        system_alerts: categories.find(c => c.id === "6")?.channels.email ?? true,
+        marketing: false,
+      });
+      setSuccess("Preferences saved successfully.");
+    } catch (err: any) {
+      setError(err.message || "Failed to save preferences");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const toggleChannel = (categoryId: string, channel: "email" | "sms" | "push") => {
     setCategories((prev) =>
@@ -78,11 +129,18 @@ export default function NotificationSettingsPage() {
             Configure how and when you receive notifications across all channels.
           </p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
-          <Save className="w-4 h-4" />
-          Save Preferences
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? "Saving..." : "Save Preferences"}
         </button>
       </div>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">{success}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ─── Notification Categories (2 cols) ─── */}

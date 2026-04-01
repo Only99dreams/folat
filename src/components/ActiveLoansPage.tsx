@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Download,
@@ -11,107 +11,44 @@ import {
   MessageSquare,
   Eye,
   TrendingUp,
+  Loader2,
 } from "lucide-react";
+import { fetchLoanApplications, fetchBranches } from "../lib/db";
 
-/* ─── Loan Data ─── */
-interface ActiveLoan {
-  id: string;
-  avatar: string;
-  avatarColor: string;
-  name: string;
-  loanAmount: string;
-  balanceLeft: string;
-  balancePercent: number;
-  barColor: string;
-  monthlyPmt: string;
-  nextDue: string;
-  nextDueColor: string;
-  status: "On Track" | "Late" | "Overdue";
-}
-
-const loans: ActiveLoan[] = [
-  {
-    id: "#LN-8821",
-    avatar: "JD",
-    avatarColor: "bg-navy-900 text-white",
-    name: "John Doe",
-    loanAmount: "$5,000",
-    balanceLeft: "$3,400 left",
-    balancePercent: 68,
-    barColor: "bg-blue-500",
-    monthlyPmt: "$250",
-    nextDue: "Oct 12, 2023",
-    nextDueColor: "text-navy-900",
-    status: "On Track",
-  },
-  {
-    id: "#LN-7742",
-    avatar: "SS",
-    avatarColor: "bg-purple-100 text-purple-700",
-    name: "Sarah Smith",
-    loanAmount: "$12,000",
-    balanceLeft: "$10,200 left",
-    balancePercent: 85,
-    barColor: "bg-blue-500",
-    monthlyPmt: "$600",
-    nextDue: "Oct 05, 2023",
-    nextDueColor: "text-red-500",
-    status: "Late",
-  },
-  {
-    id: "#LN-9903",
-    avatar: "MB",
-    avatarColor: "bg-navy-900 text-white",
-    name: "Michael Brown",
-    loanAmount: "$2,500",
-    balanceLeft: "$375 left",
-    balancePercent: 15,
-    barColor: "bg-amber-400",
-    monthlyPmt: "$150",
-    nextDue: "Sep 28, 2023",
-    nextDueColor: "text-navy-900",
-    status: "Overdue",
-  },
-  {
-    id: "#LN-6621",
-    avatar: "EJ",
-    avatarColor: "bg-blue-100 text-blue-700",
-    name: "Emily Jackson",
-    loanAmount: "$8,500",
-    balanceLeft: "$7,800 left",
-    balancePercent: 92,
-    barColor: "bg-green-500",
-    monthlyPmt: "$450",
-    nextDue: "Oct 18, 2023",
-    nextDueColor: "text-navy-900",
-    status: "On Track",
-  },
-];
-
-const statusBadge = (status: ActiveLoan["status"]) => {
-  const styles: Record<string, string> = {
-    "On Track": "text-green-600",
-    Late: "text-orange-500",
-    Overdue: "text-red-500",
-  };
-  return (
-    <span className={`text-sm font-semibold ${styles[status]}`}>{status}</span>
-  );
-};
-
-/* ─── Branch Distribution Data ─── */
-const branches = [
-  { name: "Main Office", amount: "$540,200", percent: 100 },
-  { name: "North Region", amount: "$412,800", percent: 76 },
-  { name: "South Region", amount: "$287,000", percent: 53 },
+const avatarColors = [
+  "bg-navy-900 text-white",
+  "bg-purple-100 text-purple-700",
+  "bg-blue-100 text-blue-700",
+  "bg-green-100 text-green-700",
+  "bg-amber-100 text-amber-700",
 ];
 
 export default function ActiveLoansPage() {
   const [currentPage, setCurrentPage] = useState(1);
+  const [loans, setLoans] = useState<any[]>([]);
+  const [totalLoans, setTotalLoans] = useState(0);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [branchFilter, setBranchFilter] = useState("");
+  const [loading, setLoading] = useState(true);
+  const perPage = 10;
+  const totalPages = Math.max(1, Math.ceil(totalLoans / perPage));
 
-  const totalLoans = 412;
-  const perPage = 4;
-  const totalPages = 2;
+  useEffect(() => {
+    fetchBranches().then(data => setBranches(data)).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchLoanApplications({
+      status: "disbursed",
+      branch_id: branchFilter || undefined,
+      page: currentPage,
+      pageSize: perPage,
+    }).then(({ data, count }) => {
+      setLoans(data);
+      setTotalLoans(count);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [currentPage, branchFilter]);
 
   return (
     <div className="space-y-6">
@@ -143,8 +80,7 @@ export default function ActiveLoansPage() {
             Total Active Capital
           </p>
           <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-bold text-navy-900">$1.24M</p>
-            <span className="text-xs font-semibold text-green-600">+4.2%</span>
+            <p className="text-2xl font-bold text-navy-900">₦{loans.reduce((s, l) => s + Number(l.amount_approved ?? l.amount_requested ?? 0), 0).toLocaleString()}</p>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
@@ -152,7 +88,7 @@ export default function ActiveLoansPage() {
             Total Active Loans
           </p>
           <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-bold text-navy-900">412</p>
+            <p className="text-2xl font-bold text-navy-900">{totalLoans}</p>
             <span className="text-xs text-gray-400">Active</span>
           </div>
         </div>
@@ -161,8 +97,7 @@ export default function ActiveLoansPage() {
             At Risk Capital
           </p>
           <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-bold text-navy-900">$42,500</p>
-            <span className="text-xs font-semibold text-red-500">12 Late</span>
+            <p className="text-2xl font-bold text-navy-900">—</p>
           </div>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
@@ -170,7 +105,7 @@ export default function ActiveLoansPage() {
             Recovery Rate
           </p>
           <div className="flex items-baseline gap-2">
-            <p className="text-2xl font-bold text-navy-900">98.2%</p>
+            <p className="text-2xl font-bold text-navy-900">—</p>
             <span className="text-xs text-gray-400">Portfolio</span>
           </div>
         </div>
@@ -233,101 +168,71 @@ export default function ActiveLoansPage() {
               </tr>
             </thead>
             <tbody>
-              {loans.map((loan, i) => (
+              {loading ? (
+                <tr><td colSpan={8} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+              ) : loans.length === 0 ? (
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No active loans found.</td></tr>
+              ) : loans.map((loan, i) => {
+                const memberName = loan.member ? `${loan.member.first_name} ${loan.member.last_name}` : "N/A";
+                const initials = memberName.split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase();
+                const amount = Number(loan.amount_approved ?? loan.amount_requested ?? 0);
+                const totalRepayable = Number(loan.total_repayable ?? amount);
+                const monthlyPmt = Number(loan.monthly_repayment ?? 0);
+                // Placeholder balance calculation
+                const balancePercent = totalRepayable > 0 ? 100 : 0;
+                return (
                 <tr
-                  key={i}
+                  key={loan.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                 >
-                  {/* Loan ID */}
                   <td className="px-6 py-5">
-                    <p className="text-sm font-semibold text-navy-900">
-                      {loan.id}
-                    </p>
+                    <p className="text-sm font-semibold text-navy-900">{loan.loan_id}</p>
                   </td>
-
-                  {/* Member */}
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${loan.avatarColor}`}
-                      >
-                        {loan.avatar}
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${avatarColors[i % avatarColors.length]}`}>
+                        {initials}
                       </div>
-                      <p className="text-sm font-medium text-navy-900">
-                        {loan.name}
-                      </p>
+                      <p className="text-sm font-medium text-navy-900">{memberName}</p>
                     </div>
                   </td>
-
-                  {/* Loan Amount */}
                   <td className="px-4 py-5">
-                    <p className="text-sm font-semibold text-navy-900">
-                      {loan.loanAmount}
-                    </p>
+                    <p className="text-sm font-semibold text-navy-900">₦{amount.toLocaleString()}</p>
                   </td>
-
-                  {/* Balance Remaining */}
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 min-w-[120px]">
-                        <span className="text-xs font-semibold text-navy-900 bg-navy-50 px-2 py-0.5 rounded whitespace-nowrap">
-                          {loan.balanceLeft}
-                        </span>
-                        <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${loan.barColor}`}
-                            style={{ width: `${loan.balancePercent}%` }}
-                          />
-                        </div>
-                      </div>
-                      <span className="text-[10px] text-gray-400 font-medium">
-                        {loan.balancePercent}%
+                      <span className="text-xs font-semibold text-navy-900 bg-navy-50 px-2 py-0.5 rounded whitespace-nowrap">
+                        ₦{totalRepayable.toLocaleString()} total
                       </span>
+                      <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-blue-500" style={{ width: `${balancePercent}%` }} />
+                      </div>
                     </div>
                   </td>
-
-                  {/* Monthly PMT */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-navy-900">{loan.monthlyPmt}</p>
+                    <p className="text-sm text-navy-900">₦{monthlyPmt.toLocaleString()}</p>
                   </td>
-
-                  {/* Next Due */}
                   <td className="px-4 py-5">
-                    <p className={`text-sm font-medium ${loan.nextDueColor}`}>
-                      {loan.nextDue}
+                    <p className="text-sm font-medium text-navy-900">
+                      {loan.disbursement_date ? new Date(loan.disbursement_date).toLocaleDateString() : "—"}
                     </p>
                   </td>
-
-                  {/* Status */}
-                  <td className="px-4 py-5">{statusBadge(loan.status)}</td>
-
-                  {/* Actions */}
+                  <td className="px-4 py-5">
+                    <span className="text-sm font-semibold text-green-600">Active</span>
+                  </td>
                   <td className="px-4 py-5">
                     <div className="flex items-center justify-center gap-1">
-                      <Link
-                        title="Details"
-                        to={`/loans/${encodeURIComponent(loan.id)}`}
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
+                      <Link title="Details" to={`/loans/${loan.id}`} className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <FileText className="w-4 h-4" />
                       </Link>
-                      <button
-                        title="Message"
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                      </button>
-                      <Link
-                        title="View"
-                        to={`/loans/${encodeURIComponent(loan.id)}`}
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
+                      <Link title="Schedule" to={`/loans/${loan.id}/schedule`} className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <Eye className="w-4 h-4" />
                       </Link>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -394,19 +299,16 @@ export default function ActiveLoansPage() {
 
           <div className="space-y-4">
             {branches.map((b, i) => (
-              <div key={i}>
+              <div key={b.id}>
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-sm font-medium text-navy-900">
                     {b.name}
-                  </span>
-                  <span className="text-sm font-semibold text-navy-900">
-                    {b.amount}
                   </span>
                 </div>
                 <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-navy-900 rounded-full transition-all duration-500"
-                    style={{ width: `${b.percent}%` }}
+                    style={{ width: `${Math.max(20, 100 - i * 25)}%` }}
                   />
                 </div>
               </div>

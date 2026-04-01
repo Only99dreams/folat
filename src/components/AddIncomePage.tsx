@@ -1,20 +1,50 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { Save } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Save, Loader2 } from "lucide-react";
+import { fetchBranches, createFinanceTransaction } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function AddIncomePage() {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [branches, setBranches] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
   const [form, setForm] = useState({
     category: "",
     amount: "",
     branch: "",
     paymentMethod: "",
-    transactionDate: "",
+    transactionDate: new Date().toISOString().split("T")[0],
     referenceNumber: "",
     description: "",
   });
 
+  useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
+
   const update = (field: string, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+
+  const handleSubmit = async () => {
+    if (!form.category || !form.amount || !form.transactionDate) { setError("Please fill in category, amount and date"); return; }
+    setError("");
+    setSubmitting(true);
+    try {
+      await createFinanceTransaction({
+        type: "income",
+        category: form.category,
+        description: form.description,
+        amount: parseFloat(form.amount.replace(/,/g, "")),
+        payment_method: form.paymentMethod,
+        reference: form.referenceNumber,
+        branch_id: form.branch || undefined,
+        date: form.transactionDate,
+        recorded_by: profile?.id ?? "",
+      });
+      navigate("/finance");
+    } catch (e: any) { setError(e.message || "Failed to save income"); }
+    setSubmitting(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -71,10 +101,7 @@ export default function AddIncomePage() {
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none"
             >
               <option value="">Select branch</option>
-              <option value="lagos-central">Lagos Central</option>
-              <option value="abuja">Abuja Branch</option>
-              <option value="port-harcourt">Port Harcourt</option>
-              <option value="ibadan">Ibadan Branch</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
 
@@ -145,12 +172,22 @@ export default function AddIncomePage() {
           <Link to="/finance" className="px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             Cancel
           </Link>
-          <button className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
-            <Save className="w-4 h-4" />
-            Save Income
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {submitting ? 'Saving...' : 'Save Income'}
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
 
       {/* ─── Bottom Stat Cards ─── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

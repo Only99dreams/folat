@@ -1,11 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Shield,
   Users,
-  Plus,
   Search,
   Edit2,
-  Trash2,
   Eye,
   ChevronLeft,
   ChevronRight,
@@ -13,28 +11,24 @@ import {
   X,
   Lock,
   Key,
+  Loader2,
+  Plus,
 } from "lucide-react";
+import { fetchAllProfiles, updateProfileRole } from "../lib/db";
 
-/* ─── Roles ─── */
-interface Role {
-  id: string;
-  name: string;
-  description: string;
-  userCount: number;
-  permissions: number;
-  totalPermissions: number;
-  createdAt: string;
-  color: string;
-}
+/* ─── Role definitions ─── */
+const roleDefinitions: Record<string, { label: string; description: string; color: string }> = {
+  super_admin: { label: "Super Admin", description: "Full system access with all permissions", color: "bg-red-100 text-red-700" },
+  branch_manager: { label: "Branch Manager", description: "Manage branch operations, members, and staff", color: "bg-blue-100 text-blue-700" },
+  finance_officer: { label: "Finance Officer", description: "Handle financial transactions and reporting", color: "bg-green-100 text-green-700" },
+  loan_officer: { label: "Loan Officer", description: "Process and manage loan applications", color: "bg-amber-100 text-amber-700" },
+  front_desk: { label: "Front Desk", description: "Basic member registration and enquiries", color: "bg-purple-100 text-purple-700" },
+  auditor: { label: "Auditor", description: "Read-only access for audit and compliance", color: "bg-gray-100 text-gray-700" },
+  hr_manager: { label: "HR Manager", description: "Manage staff, leave, and attendance", color: "bg-teal-100 text-teal-700" },
+  unassigned: { label: "Unassigned", description: "No role assigned yet", color: "bg-gray-100 text-gray-500" },
+};
 
-const roles: Role[] = [
-  { id: "1", name: "Super Admin", description: "Full system access with all permissions", userCount: 2, permissions: 48, totalPermissions: 48, createdAt: "Jan 01, 2023", color: "bg-red-100 text-red-700" },
-  { id: "2", name: "Branch Manager", description: "Manage branch operations, members, and staff", userCount: 6, permissions: 32, totalPermissions: 48, createdAt: "Jan 15, 2023", color: "bg-blue-100 text-blue-700" },
-  { id: "3", name: "Finance Officer", description: "Handle financial transactions and reporting", userCount: 4, permissions: 24, totalPermissions: 48, createdAt: "Feb 01, 2023", color: "bg-green-100 text-green-700" },
-  { id: "4", name: "Loan Officer", description: "Process and manage loan applications", userCount: 8, permissions: 18, totalPermissions: 48, createdAt: "Feb 10, 2023", color: "bg-amber-100 text-amber-700" },
-  { id: "5", name: "Front Desk", description: "Basic member registration and enquiries", userCount: 12, permissions: 10, totalPermissions: 48, createdAt: "Mar 01, 2023", color: "bg-purple-100 text-purple-700" },
-  { id: "6", name: "Auditor", description: "Read-only access for audit and compliance", userCount: 3, permissions: 14, totalPermissions: 48, createdAt: "Mar 15, 2023", color: "bg-gray-100 text-gray-700" },
-];
+const roleKeys = Object.keys(roleDefinitions);
 
 /* ─── Permission Matrix ─── */
 const permissionModules = [
@@ -68,14 +62,53 @@ const permissionModules = [
 ];
 
 export default function AccessControlPage() {
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"roles" | "matrix">("roles");
   const [searchQuery, setSearchQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editRole, setEditRole] = useState("");
 
-  const filteredRoles = roles.filter(
-    (r) =>
-      r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.description.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => { loadProfiles(); }, []);
+
+  async function loadProfiles() {
+    try {
+      setLoading(true);
+      const data = await fetchAllProfiles();
+      setProfiles(data);
+    } catch (err) {
+      console.error("Failed to load profiles:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveRole(profileId: string) {
+    try {
+      await updateProfileRole(profileId, editRole);
+      setEditingId(null);
+      await loadProfiles();
+    } catch (err) {
+      console.error("Failed to update role:", err);
+    }
+  }
+
+  // Build role summary 
+  const roleSummary = roleKeys.map((key) => ({
+    key,
+    ...roleDefinitions[key],
+    count: profiles.filter((p) => p.role === key).length,
+  }));
+
+  const filteredProfiles = profiles.filter((p) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      (p.full_name || "").toLowerCase().includes(q) ||
+      (p.email || "").toLowerCase().includes(q) ||
+      (p.role || "").toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="space-y-6">
@@ -100,32 +133,32 @@ export default function AccessControlPage() {
             <Shield className="w-4 h-4 text-green-600" />
             <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Total Roles</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">6</p>
-          <p className="text-xs text-gray-400 font-medium mt-1">Active</p>
+          <p className="text-2xl font-bold text-navy-900">{roleKeys.length}</p>
+          <p className="text-xs text-gray-400 font-medium mt-1">System roles</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
             <Users className="w-4 h-4 text-blue-600" />
             <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Total Users</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">35</p>
-          <p className="text-xs text-blue-600 font-medium mt-1">With Roles</p>
+          <p className="text-2xl font-bold text-navy-900">{profiles.length}</p>
+          <p className="text-xs text-blue-600 font-medium mt-1">Registered</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
             <Key className="w-4 h-4 text-amber-500" />
-            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Permissions</p>
+            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Assigned</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">48</p>
-          <p className="text-xs text-amber-500 font-medium mt-1">Across System</p>
+          <p className="text-2xl font-bold text-navy-900">{profiles.filter(p => p.role && p.role !== 'unassigned').length}</p>
+          <p className="text-xs text-amber-500 font-medium mt-1">With roles</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
             <Lock className="w-4 h-4 text-red-500" />
-            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Restricted</p>
+            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Unassigned</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">12</p>
-          <p className="text-xs text-red-500 font-medium mt-1">Admin Only</p>
+          <p className="text-2xl font-bold text-navy-900">{profiles.filter(p => !p.role || p.role === 'unassigned').length}</p>
+          <p className="text-xs text-red-500 font-medium mt-1">Pending assignment</p>
         </div>
       </div>
 
@@ -168,76 +201,84 @@ export default function AccessControlPage() {
         {/* ─── Roles Tab ─── */}
         {activeTab === "roles" && (
           <>
+            {/* Role Summary */}
+            <div className="px-6 py-4 border-b border-gray-100">
+              <div className="flex flex-wrap gap-2">
+                {roleSummary.map((r) => (
+                  <span key={r.key} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold ${r.color}`}>
+                    <Shield className="w-3 h-3" /> {r.label}: {r.count}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* Users Table */}
             <div className="overflow-x-auto">
             <table className="w-full text-left">
               <thead>
                 <tr className="border-b border-gray-100">
-                  <th className="px-6 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Role</th>
-                  <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Description</th>
-                  <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Users</th>
-                  <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Permissions</th>
-                  <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Created</th>
+                  <th className="px-6 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">User</th>
+                  <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Email</th>
+                  <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Current Role</th>
+                  <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Joined</th>
                   <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRoles.map((role) => (
-                  <tr key={role.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                {loading ? (
+                  <tr><td colSpan={5} className="py-16 text-center"><Loader2 className="w-6 h-6 animate-spin text-green-600 mx-auto" /></td></tr>
+                ) : filteredProfiles.length === 0 ? (
+                  <tr><td colSpan={5} className="py-16 text-center text-gray-400">No users found.</td></tr>
+                ) : filteredProfiles.map((profile) => {
+                  const rd = roleDefinitions[profile.role] || roleDefinitions.unassigned;
+                  return (
+                  <tr key={profile.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${role.color}`}>
-                          <Shield className="w-4 h-4" />
-                        </div>
-                        <span className="text-sm font-semibold text-navy-900">{role.name}</span>
-                      </div>
+                      <p className="text-sm font-semibold text-navy-900">{profile.full_name || 'Unnamed'}</p>
                     </td>
-                    <td className="px-4 py-4 text-sm text-gray-500 max-w-[250px]">{role.description}</td>
+                    <td className="px-4 py-4 text-sm text-gray-500">{profile.email}</td>
                     <td className="px-4 py-4">
-                      <span className="text-sm font-semibold text-navy-900">{role.userCount}</span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-green-500 rounded-full"
-                            style={{ width: `${(role.permissions / role.totalPermissions) * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-gray-500">
-                          {role.permissions}/{role.totalPermissions}
+                      {editingId === profile.id ? (
+                        <select value={editRole} onChange={(e) => setEditRole(e.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm">
+                          {roleKeys.map((k) => <option key={k} value={k}>{roleDefinitions[k].label}</option>)}
+                        </select>
+                      ) : (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-bold ${rd.color}`}>
+                          <Shield className="w-3 h-3" /> {rd.label}
                         </span>
-                      </div>
+                      )}
                     </td>
-                    <td className="px-4 py-4 text-sm text-gray-500">{role.createdAt}</td>
+                    <td className="px-4 py-4 text-sm text-gray-500">{new Date(profile.created_at).toLocaleDateString()}</td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-1">
-                        <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
-                          <Eye className="w-4 h-4 text-gray-400" />
-                        </button>
-                        <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
-                          <Edit2 className="w-4 h-4 text-gray-400" />
-                        </button>
-                        <button className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 transition-colors">
-                          <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
-                        </button>
+                        {editingId === profile.id ? (
+                          <>
+                            <button onClick={() => handleSaveRole(profile.id)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-green-50 transition-colors">
+                              <Check className="w-4 h-4 text-green-600" />
+                            </button>
+                            <button onClick={() => setEditingId(null)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-red-50 transition-colors">
+                              <X className="w-4 h-4 text-red-500" />
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => { setEditingId(profile.id); setEditRole(profile.role || 'unassigned'); }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 transition-colors">
+                            <Edit2 className="w-4 h-4 text-gray-400" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             </div>
 
             <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
               <p className="text-sm text-gray-500">
-                Showing <span className="font-semibold text-navy-900">{filteredRoles.length}</span> of{" "}
-                <span className="font-semibold text-navy-900">{roles.length}</span> roles
+                Showing <span className="font-semibold text-navy-900">{filteredProfiles.length}</span> of{" "}
+                <span className="font-semibold text-navy-900">{profiles.length}</span> users
               </p>
-              <div className="flex items-center gap-1">
-                <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400"><ChevronLeft className="w-4 h-4" /></button>
-                <button className="w-8 h-8 flex items-center justify-center rounded-lg bg-navy-900 text-white text-sm font-semibold">1</button>
-                <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400"><ChevronRight className="w-4 h-4" /></button>
-              </div>
             </div>
           </>
         )}

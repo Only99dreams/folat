@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useParams } from "react-router-dom";
 import {
   MapPin,
   CalendarDays,
@@ -11,11 +11,37 @@ import {
   ChevronRight,
   TrendingUp,
   ArrowLeft,
+  Loader2,
 } from "lucide-react";
+import { fetchMember, fetchSavingsAccount, fetchSavingsTransactions, fetchLoanApplications } from "../lib/db";
 
 export default function MemberDetailPage() {
+  const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState("Overview");
   const tabs = ["Overview", "Savings", "Loans", "Documents", "Activity Log"];
+  const [member, setMember] = useState<any>(null);
+  const [savings, setSavings] = useState<any>(null);
+  const [activeLoans, setActiveLoans] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const m = await fetchMember(id);
+        setMember(m);
+        const sa = await fetchSavingsAccount(id).catch(() => null);
+        setSavings(sa);
+        const { data: loans } = await fetchLoanApplications({ member_id: id, status: "disbursed" });
+        setActiveLoans(loans);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, [id]);
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-gray-400" /></div>;
+  if (!member) return <div className="text-center py-20 text-gray-400">Member not found</div>;
 
   return (
     <div className="space-y-6">
@@ -33,33 +59,29 @@ export default function MemberDetailPage() {
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             {/* Avatar */}
-            <div className="w-16 h-16 rounded-full bg-gray-300 overflow-hidden flex-shrink-0">
-              <img
-                src="https://ui-avatars.com/api/?name=Ajibola+Christopher&size=128&background=cccccc&color=1a2744&bold=true"
-                alt="Ajibola Christopher"
-                className="w-full h-full object-cover"
-              />
+            <div className="w-16 h-16 rounded-full bg-navy-900 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+              {member.first_name?.[0]}{member.last_name?.[0]}
             </div>
 
             <div>
               <div className="flex items-center gap-3">
                 <h1 className="text-xl font-bold text-navy-900">
-                  Ajibola Christopher
+                  {member.first_name} {member.last_name}
                 </h1>
               </div>
               <p className="text-sm text-gray-500 mt-0.5">
-                <span className="font-medium text-navy-900">MBR-001245</span>
+                <span className="font-medium text-navy-900">{member.member_id}</span>
                 <span className="mx-1.5">·</span>
-                Lagos Mainland Branch
+                {member.branch?.name ?? "—"}
               </p>
               <div className="flex items-center gap-4 mt-1 text-xs text-gray-400">
                 <span className="flex items-center gap-1">
                   <MapPin className="w-3.5 h-3.5" />
-                  New York, USA
+                  {member.address || "—"}
                 </span>
                 <span className="flex items-center gap-1">
                   <CalendarDays className="w-3.5 h-3.5" />
-                  Joined Jan 2022
+                  Joined {new Date(member.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
                 </span>
               </div>
             </div>
@@ -115,11 +137,7 @@ export default function MemberDetailPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
             Savings Balance
           </p>
-          <p className="text-2xl font-bold text-navy-900 mt-1">₦350,000</p>
-          <p className="flex items-center gap-1 text-xs text-green-600 mt-1.5">
-            <TrendingUp className="w-3.5 h-3.5" />
-            +2.4% this month
-          </p>
+          <p className="text-2xl font-bold text-navy-900 mt-1">₦{savings ? Number(savings.balance).toLocaleString() : 0}</p>
         </div>
 
         {/* Active Loan */}
@@ -127,8 +145,8 @@ export default function MemberDetailPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
             Active Loan
           </p>
-          <p className="text-2xl font-bold text-navy-900 mt-1">₦120,000</p>
-          <p className="text-xs text-gray-400 mt-1.5">Next due: 12 Oct</p>
+          <p className="text-2xl font-bold text-navy-900 mt-1">₦{activeLoans.length > 0 ? Number(activeLoans[0].amount_approved ?? activeLoans[0].amount_requested).toLocaleString() : 0}</p>
+          <p className="text-xs text-gray-400 mt-1.5">{activeLoans.length > 0 ? `Loan: ${activeLoans[0].loan_id}` : "No active loan"}</p>
         </div>
 
         {/* Loan Status */}
@@ -150,7 +168,7 @@ export default function MemberDetailPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
             Total Deposits
           </p>
-          <p className="text-2xl font-bold text-navy-900 mt-1">₦800,000</p>
+          <p className="text-2xl font-bold text-navy-900 mt-1">₦{savings ? Number(savings.balance).toLocaleString() : 0}</p>
           <p className="text-xs text-gray-400 mt-1.5">Lifetime total value</p>
         </div>
       </div>
@@ -199,7 +217,7 @@ export default function MemberDetailPage() {
                     Full Name
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    Ajibola Christopher
+                    {member.first_name} {member.last_name}
                   </p>
                 </div>
                 <div>
@@ -207,7 +225,7 @@ export default function MemberDetailPage() {
                     Email Address
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    ajibola.c@example.com
+                    {member.email || "—"}
                   </p>
                 </div>
                 <div>
@@ -215,7 +233,7 @@ export default function MemberDetailPage() {
                     Phone Number
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    +234 812 345 6789
+                    {member.phone || "—"}
                   </p>
                 </div>
                 <div>
@@ -223,7 +241,7 @@ export default function MemberDetailPage() {
                     Home Address
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    12, Adeniyi Jones, Ikeja, Lagos
+                    {member.address || "—"}
                   </p>
                 </div>
                 <div>
@@ -231,7 +249,7 @@ export default function MemberDetailPage() {
                     Occupation
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    Software Engineer
+                    {member.occupation || "—"}
                   </p>
                 </div>
                 <div>
@@ -239,7 +257,7 @@ export default function MemberDetailPage() {
                     Date of Birth
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    15 May, 1988
+                    {member.date_of_birth ? new Date(member.date_of_birth).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' }) : "—"}
                   </p>
                 </div>
               </div>
@@ -257,7 +275,7 @@ export default function MemberDetailPage() {
                     Membership ID
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    MBR-001245
+                    {member.member_id}
                   </p>
                 </div>
                 <div>
@@ -265,7 +283,7 @@ export default function MemberDetailPage() {
                     Date Joined
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    10 January, 2020
+                    {new Date(member.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
                   </p>
                 </div>
                 <div>
@@ -273,7 +291,7 @@ export default function MemberDetailPage() {
                     Branch
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    Lagos Mainland
+                    {member.branch?.name ?? "—"}
                   </p>
                 </div>
                 <div>
@@ -299,14 +317,14 @@ export default function MemberDetailPage() {
 
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-11 h-11 rounded-full bg-navy-900 flex items-center justify-center text-white text-xs font-bold">
-                  SA
+                  —
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-navy-900">
-                    Sarah Alabi
+                    —
                   </p>
                   <p className="text-xs text-gray-400">
-                    MBR-000982 · Senior Member
+                    No guarantor assigned
                   </p>
                 </div>
               </div>
@@ -317,14 +335,14 @@ export default function MemberDetailPage() {
                     Contact
                   </p>
                   <p className="text-sm font-medium text-navy-900">
-                    +234 802 991 2233
+                    —
                   </p>
                 </div>
                 <div>
                   <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-0.5">
                     Guaranteed Since
                   </p>
-                  <p className="text-sm font-medium text-navy-900">Feb 2021</p>
+                  <p className="text-sm font-medium text-navy-900">—</p>
                 </div>
               </div>
 
@@ -343,16 +361,16 @@ export default function MemberDetailPage() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-gray-600">
-                    Total Dividends (2023)
+                    Total Dividends
                   </p>
-                  <p className="text-base font-bold text-navy-900">₦42,500</p>
+                  <p className="text-base font-bold text-navy-900">—</p>
                 </div>
 
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-gray-600">
                     Monthly Contribution
                   </p>
-                  <p className="text-base font-bold text-navy-900">₦25,000</p>
+                  <p className="text-base font-bold text-navy-900">—</p>
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -360,23 +378,12 @@ export default function MemberDetailPage() {
                     Repayment Credit Score
                   </p>
                   <div className="text-right">
-                    <p className="text-lg font-bold text-green-600">842</p>
-                    <p className="text-[10px] font-bold text-green-600 uppercase tracking-wider">
-                      Excellent
-                    </p>
+                    <p className="text-lg font-bold text-gray-400">—</p>
                   </div>
                 </div>
 
-                {/* Credit Score Bar */}
-                <div className="w-full bg-green-200 rounded-full h-2">
-                  <div
-                    className="bg-green-600 h-2 rounded-full"
-                    style={{ width: `${((842 - 300) / 550) * 100}%` }}
-                  />
-                </div>
-
                 <p className="text-xs text-gray-500 text-center">
-                  Membership tenure: 4.2 years
+                  Membership tenure: {Math.max(0, Math.floor((Date.now() - new Date(member.created_at).getTime()) / (365.25 * 24 * 60 * 60 * 1000)))} years
                 </p>
               </div>
             </div>

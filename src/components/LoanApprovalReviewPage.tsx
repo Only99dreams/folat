@@ -1,31 +1,58 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   FileText,
   Landmark,
   Users,
   CheckCircle2,
   XCircle,
+  Loader2,
 } from "lucide-react";
+import { fetchLoanApplication, approveLoan, rejectLoan } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function LoanApprovalReviewPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [loan, setLoan] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [decision, setDecision] = useState("approve");
   const [decisionNotes, setDecisionNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  /* ─── Guarantor Data ─── */
-  const guarantors = [
-    {
-      name: "Adebayo Chinedu",
-      savings: "₦500,000",
-      loanStatus: "Clear",
-      eligibility: "Eligible",
-    },
-    {
-      name: "Fatima Ibrahim",
-      savings: "₦280,000",
-      loanStatus: "Clear",
-      eligibility: "Eligible",
-    },
-  ];
+  useEffect(() => {
+    if (!id) return;
+    fetchLoanApplication(id).then(setLoan).catch(() => {}).finally(() => setLoading(false));
+  }, [id]);
+
+  const handleDecision = async () => {
+    if (!id || !profile) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      if (decision === "approve") {
+        await approveLoan(id, profile.id, decisionNotes);
+      } else {
+        await rejectLoan(id, profile.id, decisionNotes);
+      }
+      navigate("/loans");
+    } catch (e: any) {
+      setError(e.message || "Failed to process decision");
+    }
+    setSubmitting(false);
+  };
+
+  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-navy-900" /></div>;
+  if (!loan) return <div className="text-center py-20 text-gray-500">Loan application not found.</div>;
+
+  const memberName = loan.member ? `${loan.member.first_name} ${loan.member.last_name}` : "N/A";
+  const principal = Number(loan.amount_requested ?? 0);
+  const interestRate = Number(loan.interest_rate ?? 0);
+  const months = Number(loan.duration_months ?? 12);
+  const totalInterest = principal * (interestRate / 100) * (months / 12);
+  const monthlyRepayment = months > 0 ? (principal + totalInterest) / months : 0;
 
   return (
     <div className="space-y-6">
@@ -42,7 +69,7 @@ export default function LoanApprovalReviewPage() {
         <div className="flex items-center gap-2">
           <span className="text-xs text-gray-400 font-medium">APP ID:</span>
           <span className="px-3 py-1.5 bg-green-50 text-green-700 text-sm font-semibold rounded-full border border-green-200">
-            #FOL-2023-9842
+            {loan.loan_id}
           </span>
         </div>
       </div>
@@ -63,7 +90,7 @@ export default function LoanApprovalReviewPage() {
                 </h2>
               </div>
               <span className="px-3 py-1 bg-blue-50 text-blue-600 text-xs font-semibold rounded border border-blue-200">
-                Personal Loan
+                {loan.loan_type ?? 'Loan'}
               </span>
             </div>
 
@@ -72,25 +99,25 @@ export default function LoanApprovalReviewPage() {
                 <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
                   Amount
                 </p>
-                <p className="text-xl font-bold text-navy-900">₦1,000,000</p>
+                <p className="text-xl font-bold text-navy-900">₦{principal.toLocaleString()}</p>
               </div>
               <div className="px-4">
                 <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
                   Duration
                 </p>
-                <p className="text-xl font-bold text-navy-900">12 Months</p>
+                <p className="text-xl font-bold text-navy-900">{months} Months</p>
               </div>
               <div className="px-4">
                 <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
                   Interest
                 </p>
-                <p className="text-xl font-bold text-navy-900">15% p.a.</p>
+                <p className="text-xl font-bold text-navy-900">{interestRate}% p.a.</p>
               </div>
               <div className="pl-4">
                 <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
                   Repayment
                 </p>
-                <p className="text-xl font-bold text-navy-900">₦95,833/mo</p>
+                <p className="text-xl font-bold text-navy-900">₦{Math.round(monthlyRepayment).toLocaleString()}/mo</p>
               </div>
             </div>
           </div>
@@ -308,12 +335,21 @@ export default function LoanApprovalReviewPage() {
             </div>
 
             {/* Action Buttons */}
-            <button className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors mb-3">
-              <CheckCircle2 className="w-4 h-4" />
-              Approve Loan
+            {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
+            <button
+              onClick={handleDecision}
+              disabled={submitting || decision !== "approve"}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors mb-3 disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+              {submitting ? "Processing..." : "Approve Loan"}
             </button>
 
-            <button className="w-full flex items-center justify-center gap-2 py-3 text-gray-500 hover:text-red-600 text-sm font-medium transition-colors">
+            <button
+              onClick={() => { setDecision("reject"); handleDecision(); }}
+              disabled={submitting}
+              className="w-full flex items-center justify-center gap-2 py-3 text-gray-500 hover:text-red-600 text-sm font-medium transition-colors disabled:opacity-50"
+            >
               <XCircle className="w-4 h-4" />
               Reject Loan
             </button>

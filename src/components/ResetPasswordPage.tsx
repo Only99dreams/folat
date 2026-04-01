@@ -1,6 +1,7 @@
-import { useState, useMemo } from "react";
-import { Eye, EyeOff, CheckCircle2, Info } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useState, useMemo, useEffect } from "react";
+import { Eye, EyeOff, CheckCircle2, Info, Loader2, AlertCircle } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase";
 
 function getStrength(pw: string) {
   let score = 0;
@@ -17,17 +18,60 @@ function getStrength(pw: string) {
 }
 
 export default function ResetPasswordPage() {
+  const navigate = useNavigate();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
 
   const strength = useMemo(() => getStrength(password), [password]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Listen for the PASSWORD_RECOVERY event when Supabase redirects here
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setSessionReady(true);
+      }
+    });
+
+    // Also check if there's already an active session (user may have already landed)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setSessionReady(true);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: reset password logic
-    console.log({ password, confirmPassword });
+    setError("");
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+
+    setSubmitting(false);
+
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      setSuccess(true);
+      // Redirect to login after 3 seconds
+      setTimeout(() => navigate("/", { replace: true }), 3000);
+    }
   };
 
   return (
@@ -157,12 +201,36 @@ export default function ResetPasswordPage() {
                 </div>
               </div>
 
+              {/* Error */}
+              {error && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                  <p className="text-sm text-red-600">{error}</p>
+                </div>
+              )}
+
+              {/* Success */}
+              {success && (
+                <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+                  <p className="text-sm text-green-700">Password updated! Redirecting to login…</p>
+                </div>
+              )}
+
               {/* Submit */}
               <button
                 type="submit"
-                className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all"
+                disabled={submitting || success}
+                className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
               >
-                Update Password
+                {submitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Updating…
+                  </>
+                ) : (
+                  "Update Password"
+                )}
               </button>
             </form>
 

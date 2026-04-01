@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
 import { Bell, Mail, Menu, Search, LogOut } from "lucide-react";
+import { Link } from "react-router-dom";
 import Sidebar from "./Sidebar";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -13,6 +14,11 @@ export default function DashboardLayout() {
     logout();
     navigate("/");
   };
+
+  // Unassigned users get a clean full-page layout (no sidebar/header)
+  if (user?.role === "unassigned") {
+    return <Outlet />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -55,15 +61,15 @@ export default function DashboardLayout() {
                 <Mail className="w-5 h-5" />
               </button>
               <div className="flex items-center gap-3 pl-2 sm:pl-4 border-l border-gray-200">
-                <div className="text-right hidden sm:block">
+                <Link to="/profile" className="text-right hidden sm:block hover:opacity-80 transition-opacity">
                   <p className="text-sm font-semibold text-navy-900">{user?.name ?? "User"}</p>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide">
                     {user?.roleLabel ?? "—"}
                   </p>
-                </div>
-                <div className="w-9 h-9 rounded-full bg-navy-900 flex items-center justify-center text-white text-sm font-bold shrink-0">
+                </Link>
+                <Link to="/profile" className="w-9 h-9 rounded-full bg-navy-900 flex items-center justify-center text-white text-sm font-bold shrink-0 hover:ring-2 hover:ring-green-500 transition-all">
                   {user?.avatar?.[0] ?? "U"}
-                </div>
+                </Link>
                 <button
                   onClick={handleLogout}
                   title="Log out"

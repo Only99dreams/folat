@@ -1,3 +1,4 @@
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Users,
@@ -14,6 +15,9 @@ import {
   TrendingDown,
   Diamond,
   Megaphone,
+  ShieldAlert,
+  X,
+  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -24,76 +28,24 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { supabase } from "../lib/supabase";
+import { fetchDashboardStats, fetchRecentTransactions, fetchLoanApplications, fetchFundRequests, fetchAuditLog } from "../lib/db";
+import { type UserRole, ROLE_LABELS } from "../auth/types";
 
-/* ─── Mock data ─── */
-const chartData = [
-  { month: "JAN", savings: 800, loans: 500 },
-  { month: "FEB", savings: 950, loans: 600 },
-  { month: "MAR", savings: 1100, loans: 550 },
-  { month: "APR", savings: 900, loans: 700 },
-  { month: "MAY", savings: 1050, loans: 800 },
-  { month: "JUN", savings: 1300, loans: 750 },
-  { month: "JUL", savings: 1150, loans: 650 },
-  { month: "AUG", savings: 1250, loans: 700 },
-  { month: "SEP", savings: 1400, loans: 800 },
-  { month: "OCT", savings: 1350, loans: 900 },
-  { month: "NOV", savings: 1500, loans: 850 },
-  { month: "DEC", savings: 1600, loans: 950 },
-];
-
-const recentLoans = [
-  {
-    initials: "JD",
-    name: "John Doe",
-    branch: "Ikeja Central",
-    amount: "₦ 250,000",
-    savings: "₦ 850,000",
-    status: "Under Review",
-    statusColor: "bg-yellow-100 text-yellow-700",
-    date: "Oct 24, 2023",
-  },
-  {
-    initials: "AA",
-    name: "Aisha Abubakar",
-    branch: "Abuja North",
-    amount: "₦ 1,200,000",
-    savings: "₦ 4,500,000",
-    status: "Pre-Approved",
-    statusColor: "bg-green-100 text-green-700",
-    date: "Oct 24, 2023",
-  },
-  {
-    initials: "CN",
-    name: "Chidi Nwosu",
-    branch: "Enugu East",
-    amount: "₦ 500,000",
-    savings: "₦ 120,000",
-    status: "Low Savings",
-    statusColor: "bg-red-100 text-red-700",
-    date: "Oct 23, 2023",
-  },
-];
-
-const urgentRequests = [
-  { branch: "Lagos West Branch", desc: "Petty Cash Topup", amount: "₦ 50,000" },
-  { branch: "Port Harcourt", desc: "Office Maintenance", amount: "₦ 125,000" },
-];
-
-const activityLog = [
-  { color: "bg-green-500", text: "Super Admin approved loan #L1922", time: "2 mins ago" },
-  { color: "bg-blue-500", text: "Branch Mgr (Ikeja) logged in", time: "14 mins ago" },
-  { color: "bg-gray-400", text: "System generated monthly report", time: "1 hour ago" },
-];
-
-const branchRanks = [
-  { rank: "01", initial: "L", color: "bg-purple-100 text-purple-700", name: "Lagos Central", vol: "₦ 420M Vol." },
-  { rank: "02", initial: "A", color: "bg-green-100 text-green-700", name: "Abuja Main", vol: "₦ 385M Vol." },
-  { rank: "03", initial: "P", color: "bg-pink-100 text-pink-700", name: "Port Harcourt", vol: "₦ 290M Vol." },
-];
-
-const overdueLoanAlerts = [
-  { name: "Samuel Efio", days: "14 Days Overdue", amount: "₦ 42,000" },
-  { name: "Grace Odu", days: "18 Days Overdue", amount: "₦ 15,500" },
+/* ─── Chart data placeholder (populated from real data) ─── */
+const defaultChartData = [
+  { month: "JAN", savings: 0, loans: 0 },
+  { month: "FEB", savings: 0, loans: 0 },
+  { month: "MAR", savings: 0, loans: 0 },
+  { month: "APR", savings: 0, loans: 0 },
+  { month: "MAY", savings: 0, loans: 0 },
+  { month: "JUN", savings: 0, loans: 0 },
+  { month: "JUL", savings: 0, loans: 0 },
+  { month: "AUG", savings: 0, loans: 0 },
+  { month: "SEP", savings: 0, loans: 0 },
+  { month: "OCT", savings: 0, loans: 0 },
+  { month: "NOV", savings: 0, loans: 0 },
+  { month: "DEC", savings: 0, loans: 0 },
 ];
 
 /* ─── Stat Card ─── */
@@ -147,10 +99,210 @@ function StatCard({
   );
 }
 
+/* ─── Pending Users Banner + Role Assignment ─── */
+interface PendingUser {
+  id: string;
+  full_name: string;
+  email: string;
+  created_at: string;
+}
+
+const assignableRoles: { value: UserRole; label: string }[] = (
+  Object.entries(ROLE_LABELS) as [UserRole, string][]
+)
+  .filter(([key]) => key !== "unassigned" && key !== "super_admin")
+  .map(([value, label]) => ({ value, label }));
+
+function PendingUsersSection() {
+  const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<PendingUser | null>(null);
+  const [selectedRole, setSelectedRole] = useState<UserRole | "">("");
+  const [assigning, setAssigning] = useState(false);
+
+  const loadPendingUsers = useCallback(async () => {
+    const { data } = await supabase
+      .from("profiles")
+      .select("id, full_name, email, created_at")
+      .eq("role", "unassigned")
+      .order("created_at", { ascending: false });
+    if (data) setPendingUsers(data);
+  }, []);
+
+  useEffect(() => {
+    loadPendingUsers();
+  }, [loadPendingUsers]);
+
+  const handleAssignRole = async () => {
+    if (!selectedUser || !selectedRole) return;
+    setAssigning(true);
+    await supabase
+      .from("profiles")
+      .update({ role: selectedRole })
+      .eq("id", selectedUser.id);
+    setAssigning(false);
+    setShowModal(false);
+    setSelectedUser(null);
+    setSelectedRole("");
+    loadPendingUsers();
+  };
+
+  if (pendingUsers.length === 0) return null;
+
+  return (
+    <>
+      {/* Banner */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+            <ShieldAlert className="w-5 h-5 text-amber-600" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-amber-800">
+              {pendingUsers.length} New User{pendingUsers.length > 1 ? "s" : ""} Pending Role Assignment
+            </p>
+            <p className="text-xs text-amber-600 truncate">
+              Newly registered users are waiting for you to assign them a role.
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={() => setShowModal(true)}
+          className="px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 transition-colors whitespace-nowrap"
+        >
+          Assign Roles
+        </button>
+      </div>
+
+      {/* Modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/40" onClick={() => setShowModal(false)} />
+          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900">
+                Pending Users ({pendingUsers.length})
+              </h2>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            {/* User list */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-3">
+              {pendingUsers.map((pu) => (
+                <div
+                  key={pu.id}
+                  className={`border rounded-xl p-4 transition-colors ${
+                    selectedUser?.id === pu.id
+                      ? "border-amber-400 bg-amber-50"
+                      : "border-gray-100 hover:border-gray-200"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">
+                        {pu.full_name}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">{pu.email}</p>
+                      <p className="text-[10px] text-gray-300 mt-0.5">
+                        Registered {new Date(pu.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <select
+                        className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                        value={selectedUser?.id === pu.id ? selectedRole : ""}
+                        onChange={(e) => {
+                          setSelectedUser(pu);
+                          setSelectedRole(e.target.value as UserRole);
+                        }}
+                      >
+                        <option value="">Select role...</option>
+                        {assignableRoles.map((r) => (
+                          <option key={r.value} value={r.value}>
+                            {r.label}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        disabled={selectedUser?.id !== pu.id || !selectedRole || assigning}
+                        onClick={handleAssignRole}
+                        className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                      >
+                        {assigning && selectedUser?.id === pu.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : null}
+                        Assign
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ─── Dashboard Page ─── */
 export default function DashboardPage() {
+  const [stats, setStats] = useState<any>(null);
+  const [recentLoans, setRecentLoans] = useState<any[]>([]);
+  const [urgentRequests, setUrgentRequests] = useState<any[]>([]);
+  const [activityLog, setActivityLog] = useState<any[]>([]);
+  const [chartData, setChartData] = useState(defaultChartData);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadDashboard();
+  }, []);
+
+  async function loadDashboard() {
+    try {
+      setLoading(true);
+      const [dashStats, loans, fundReqs, auditRes] = await Promise.all([
+        fetchDashboardStats(),
+        fetchLoanApplications({ page: 1, pageSize: 5 }),
+        fetchFundRequests({ status: "pending", page: 1, pageSize: 3 }),
+        fetchAuditLog({ page: 1, pageSize: 5 }),
+      ]);
+      setStats(dashStats);
+      setRecentLoans(loans.data);
+      setUrgentRequests(fundReqs.data);
+      setActivityLog(auditRes.data);
+    } catch (err) {
+      console.error("Failed to load dashboard:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const fmt = (n: number) => {
+    if (n >= 1e9) return `₦ ${(n / 1e9).toFixed(1)}B`;
+    if (n >= 1e6) return `₦ ${(n / 1e6).toFixed(1)}M`;
+    if (n >= 1e3) return `₦ ${(n / 1e3).toFixed(0)}K`;
+    return `₦ ${n.toLocaleString()}`;
+  };
+
+  const loanStatusColor: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-700",
+    approved: "bg-green-100 text-green-700",
+    rejected: "bg-red-100 text-red-700",
+    active: "bg-blue-100 text-blue-700",
+    disbursed: "bg-green-100 text-green-700",
+  };
   return (
     <div className="space-y-6">
+      {/* ─── Pending Users Alert ─── */}
+      <PendingUsersSection />
+
       {/* ─── Stats Row ─── */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatCard
@@ -158,50 +310,42 @@ export default function DashboardPage() {
           iconBg="bg-blue-50"
           iconColor="text-blue-600"
           label="Total Members"
-          value="12,845"
-          change="+2.4%"
-          positive
+          value={stats ? stats.totalMembers.toLocaleString() : "—"}
         />
         <StatCard
           icon={PiggyBank}
           iconBg="bg-green-50"
           iconColor="text-green-600"
           label="Total Savings"
-          value="₦ 1.8B"
-          change="+5.1%"
-          positive
+          value={stats ? fmt(stats.totalSavings) : "—"}
         />
         <StatCard
           icon={Landmark}
           iconBg="bg-orange-50"
           iconColor="text-orange-600"
           label="Active Loans"
-          value="₦ 320M"
-          change="-1.2%"
-          positive={false}
+          value={stats ? fmt(stats.totalLoansOutstanding) : "—"}
         />
         <StatCard
           icon={AlertTriangle}
           iconBg="bg-red-50"
           iconColor="text-red-500"
           label="Overdue Loans"
-          value="₦ 12.5M"
-          change="+0.8%"
-          positive={false}
+          value={stats ? String(stats.pendingLoans) : "—"}
         />
         <StatCard
           icon={Briefcase}
           iconBg="bg-purple-50"
           iconColor="text-purple-600"
           label="Total Staff"
-          value="145"
+          value={stats ? String(stats.totalStaff) : "—"}
         />
         <StatCard
           icon={MapPin}
           iconBg="bg-teal-50"
           iconColor="text-teal-600"
           label="Branches"
-          value="12"
+          value={stats ? String(stats.totalBranches) : "—"}
         />
       </div>
 
@@ -307,8 +451,8 @@ export default function DashboardPage() {
               {[
                 { icon: UserPlus, label: "Add Member", to: "/members/add-cooperative" },
                 { icon: CreditCard, label: "Disburse Loan", to: "/loans/new" },
-                { icon: FileBarChart, label: "Gen Report", to: "" },
-                { icon: Send, label: "Bulk SMS", to: "" },
+                { icon: FileBarChart, label: "Gen Report", to: "/reports" },
+                { icon: Send, label: "Bulk SMS", to: "/communication/sms" },
               ].map(({ icon: Icon, label, to }) => (
                 <Link
                   key={label}
@@ -328,11 +472,15 @@ export default function DashboardPage() {
               Loan Status Overview
             </h3>
             <div className="space-y-3">
-              {[
-                { label: "Approved", value: 450, pct: 74, color: "bg-green-500" },
-                { label: "Pending", value: 124, pct: 20, color: "bg-yellow-500" },
-                { label: "Overdue", value: 32, pct: 6, color: "bg-red-500" },
-              ].map((s) => (
+              {(() => {
+                const approved = stats?.activeLoans ?? 0;
+                const pending = stats?.pendingLoans ?? 0;
+                const total = approved + pending || 1;
+                return [
+                  { label: "Active / Approved", value: approved, pct: Math.round((approved / total) * 100), color: "bg-green-500" },
+                  { label: "Pending", value: pending, pct: Math.round((pending / total) * 100), color: "bg-yellow-500" },
+                ];
+              })().map((s) => (
                 <div key={s.label} className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-gray-500">{s.label}</span>
@@ -376,35 +524,42 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="text-sm">
-                {recentLoans.map((loan, i) => (
-                  <tr key={i} className="border-b border-gray-50 last:border-0">
+                {recentLoans.length === 0 ? (
+                  <tr><td colSpan={6} className="py-8 text-center text-gray-400 text-xs">No recent loan applications.</td></tr>
+                ) : recentLoans.map((loan) => {
+                  const memberName = loan.member ? `${loan.member.first_name} ${loan.member.last_name}` : "N/A";
+                  const initials = memberName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase();
+                  const statusCls = loanStatusColor[loan.status] || "bg-gray-100 text-gray-600";
+                  return (
+                  <tr key={loan.id} className="border-b border-gray-50 last:border-0">
                     <td className="py-3">
                       <div className="flex items-center gap-3">
                         <span className="w-8 h-8 rounded-full bg-navy-100 text-navy-900 flex items-center justify-center text-xs font-bold">
-                          {loan.initials}
+                          {initials}
                         </span>
                         <span className="font-medium text-navy-900">
-                          {loan.name}
+                          {memberName}
                         </span>
                       </div>
                     </td>
-                    <td className="py-3 text-gray-500 text-xs">{loan.branch}</td>
+                    <td className="py-3 text-gray-500 text-xs">{loan.branch?.name || "—"}</td>
                     <td className="py-3 font-medium text-navy-900">
-                      {loan.amount}
+                      ₦ {Number(loan.amount_requested).toLocaleString()}
                     </td>
                     <td className="py-3 text-green-600 font-medium text-xs">
-                      {loan.savings}
+                      —
                     </td>
                     <td className="py-3">
                       <span
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${loan.statusColor}`}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${statusCls}`}
                       >
                         {loan.status}
                       </span>
                     </td>
-                    <td className="py-3 text-gray-400 text-xs">{loan.date}</td>
+                    <td className="py-3 text-gray-400 text-xs">{new Date(loan.created_at).toLocaleDateString()}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -416,21 +571,23 @@ export default function DashboardPage() {
           <div className="bg-red-50 rounded-xl border border-red-100 p-5">
             <h3 className="text-sm font-bold text-red-600 flex items-center gap-1.5 mb-4">
               <Diamond className="w-4 h-4" />
-              Urgent Fund Requests ({urgentRequests.length})
+              Pending Fund Requests ({urgentRequests.length})
             </h3>
             <div className="space-y-3">
-              {urgentRequests.map((r, i) => (
+              {urgentRequests.length === 0 ? (
+                <p className="text-xs text-gray-400">No pending fund requests.</p>
+              ) : urgentRequests.map((r) => (
                 <div
-                  key={i}
+                  key={r.id}
                   className="bg-white rounded-lg p-3 flex items-center justify-between"
                 >
                   <div>
                     <p className="text-sm font-semibold text-navy-900">
-                      {r.branch}
+                      {r.branch?.name || "Branch"}
                     </p>
-                    <p className="text-[10px] text-gray-400">{r.desc}</p>
+                    <p className="text-[10px] text-gray-400">{r.description || r.purpose}</p>
                   </div>
-                  <p className="text-sm font-bold text-navy-900">{r.amount}</p>
+                  <p className="text-sm font-bold text-navy-900">₦ {Number(r.amount).toLocaleString()}</p>
                 </div>
               ))}
             </div>
@@ -442,21 +599,29 @@ export default function DashboardPage() {
               Activity Log
             </h3>
             <div className="space-y-4">
-              {activityLog.map((a, i) => (
-                <div key={i} className="flex items-start gap-3">
-                  <span
-                    className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${a.color}`}
-                  />
+              {activityLog.length === 0 ? (
+                <p className="text-xs text-gray-400">No recent activity.</p>
+              ) : activityLog.map((a) => {
+                const ago = (() => {
+                  const mins = Math.floor((Date.now() - new Date(a.created_at).getTime()) / 60000);
+                  if (mins < 60) return `${mins} mins ago`;
+                  if (mins < 1440) return `${Math.floor(mins / 60)} hours ago`;
+                  return `${Math.floor(mins / 1440)} days ago`;
+                })();
+                return (
+                <div key={a.id} className="flex items-start gap-3">
+                  <span className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 bg-green-500" />
                   <div>
-                    <p className="text-xs text-navy-900 font-medium">{a.text}</p>
-                    <p className="text-[10px] text-gray-400">{a.time}</p>
+                    <p className="text-xs text-navy-900 font-medium">{a.user?.full_name || "System"} — {a.action} {a.entity_type}</p>
+                    <p className="text-[10px] text-gray-400">{ago}</p>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
-            <button className="mt-4 text-xs font-medium text-gray-400 hover:text-navy-900 transition-colors">
-              Load More Activity
-            </button>
+            <Link to="/audit-log" className="mt-4 text-xs font-medium text-gray-400 hover:text-navy-900 transition-colors block">
+              View Full Audit Log
+            </Link>
           </div>
         </div>
       </div>
@@ -469,66 +634,39 @@ export default function DashboardPage() {
             Branch Performance Rank
           </h3>
           <div className="space-y-3">
-            {branchRanks.map((b) => (
-              <div key={b.rank} className="flex items-center gap-3">
-                <span className="text-xs font-bold text-gray-300 w-5">
-                  {b.rank}
-                </span>
-                <span
-                  className={`w-8 h-8 rounded-lg ${b.color} flex items-center justify-center text-xs font-bold`}
-                >
-                  {b.initial}
-                </span>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-navy-900">{b.name}</p>
-                </div>
-                <span className="text-xs text-green-600 font-semibold">
-                  {b.vol}
-                </span>
-              </div>
-            ))}
+            <p className="text-xs text-gray-400">No branch rankings available yet.</p>
           </div>
         </div>
 
         {/* Announcements */}
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-bold text-navy-900">Announcements</h3>
+            <h3 className="text-sm font-bold text-navy-900">Recent Activity</h3>
+            {activityLog.length > 0 && (
             <span className="w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center">
-              2
+              {Math.min(activityLog.length, 9)}
             </span>
+            )}
           </div>
           <div className="space-y-4">
-            <div className="border-l-2 border-orange-400 pl-3">
-              <div className="flex items-center gap-2">
-                <Megaphone className="w-3.5 h-3.5 text-orange-500" />
-                <p className="text-xs font-bold text-navy-900">
-                  System Maintenance Schedule
+            {activityLog.length > 0 ? activityLog.slice(0, 2).map((a: any, i: number) => (
+              <div key={a.id || i} className={`border-l-2 ${i === 0 ? 'border-orange-400' : 'border-blue-400'} pl-3`}>
+                <div className="flex items-center gap-2">
+                  <Megaphone className={`w-3.5 h-3.5 ${i === 0 ? 'text-orange-500' : 'text-blue-500'}`} />
+                  <p className="text-xs font-bold text-navy-900 truncate">
+                    {a.action} {a.entity_type}
+                  </p>
+                </div>
+                <p className="text-[10px] text-gray-400 mb-1">
+                  {a.created_at ? new Date(a.created_at).toLocaleDateString("en-NG", { month: "short", day: "numeric" }) : ""} {a.user?.full_name ? `by ${a.user.full_name}` : ""}
+                </p>
+                <p className="text-xs text-gray-500 leading-relaxed truncate">
+                  {a.entity_type} #{a.entity_id?.slice(0, 8) || "—"}
                 </p>
               </div>
-              <p className="text-[10px] text-gray-400 mb-1">
-                Posted Oct 24 by Tech Lead
-              </p>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                The system will be offline for 2 hours on Sunday for database
-                optimization...
-              </p>
-            </div>
-            <div className="border-l-2 border-blue-400 pl-3">
-              <div className="flex items-center gap-2">
-                <Megaphone className="w-3.5 h-3.5 text-blue-500" />
-                <p className="text-xs font-bold text-navy-900">
-                  New Loan Policy Update
-                </p>
-              </div>
-              <p className="text-[10px] text-gray-400 mb-1">
-                Posted Oct 22 by Fin Dept
-              </p>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Effective immediately, interest rates for personal loans have
-                been adjusted...
-              </p>
-            </div>
+            )) : (
+              <p className="text-xs text-gray-400">No recent activity</p>
+            )}
           </div>
         </div>
 
@@ -538,18 +676,17 @@ export default function DashboardPage() {
             Overdue Loan Alerts
           </h3>
           <div className="space-y-3">
-            {overdueLoanAlerts.map((a, i) => (
-              <div key={i} className="flex items-center justify-between">
+            {recentLoans.filter(l => l.status === "overdue" || l.status === "defaulted").length === 0 ? (
+              <p className="text-xs text-gray-400">No overdue loans.</p>
+            ) : recentLoans.filter(l => l.status === "overdue" || l.status === "defaulted").map((a) => (
+              <div key={a.id} className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-navy-900">{a.name}</p>
-                  <p className="text-[10px] text-red-500">{a.days}</p>
+                  <p className="text-sm font-medium text-navy-900">{a.member ? `${a.member.first_name} ${a.member.last_name}` : "N/A"}</p>
+                  <p className="text-[10px] text-red-500">{a.status}</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold text-navy-900">
-                    {a.amount}
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-red-100 text-red-600">
-                    Call
+                    ₦ {Number(a.amount_requested).toLocaleString()}
                   </span>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2, AlertCircle } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { createBranch } from "../lib/db";
 
 export default function AddBranchPage() {
   const navigate = useNavigate();
@@ -23,13 +24,31 @@ export default function AddBranchPage() {
     notes: "",
   });
 
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
   const update = (field: string, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: save branch
-    console.log(form);
+    setError("");
+    setSubmitting(true);
+    try {
+      await createBranch({
+        name: form.branchName,
+        code: form.branchCode,
+        address: form.branchAddress,
+        city: form.city,
+        state: form.state,
+        phone: form.phone,
+        email: form.email,
+      });
+      navigate("/branches");
+    } catch (err: any) {
+      setError(err.message || "Failed to create branch");
+    }
+    setSubmitting(false);
   };
 
   return (
@@ -329,6 +348,14 @@ export default function AddBranchPage() {
           </div>
         </section>
 
+        {/* ─── Error ─── */}
+        {error && (
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+            <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
         {/* ─── Actions ─── */}
         <div className="flex items-center justify-end gap-3 pt-2">
           <button
@@ -340,9 +367,11 @@ export default function AddBranchPage() {
           </button>
           <button
             type="submit"
-            className="px-6 py-2.5 bg-navy-900 text-white text-sm font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all"
+            disabled={submitting}
+            className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white text-sm font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all disabled:opacity-50"
           >
-            Save Branch
+            {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {submitting ? "Saving…" : "Save Branch"}
           </button>
         </div>
       </form>

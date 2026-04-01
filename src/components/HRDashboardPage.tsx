@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Download,
@@ -13,84 +14,63 @@ import {
   CalendarCheck,
   DollarSign,
   ChevronDown,
+  Loader2,
 } from "lucide-react";
-
-/* ─── Activity Data ─── */
-interface Activity {
-  date: string;
-  time: string;
-  staffName: string;
-  activity: string;
-  activityColor: string;
-  branch: string;
-  performedBy: string;
-}
-
-const activities: Activity[] = [
-  {
-    date: "Oct 24,",
-    time: "09:15 AM",
-    staffName: "Sarah Jenkins",
-    activity: "CLOCK IN",
-    activityColor: "bg-green-600 text-white",
-    branch: "Lagos HQ",
-    performedBy: "System",
-  },
-  {
-    date: "Oct 24,",
-    time: "08:45 AM",
-    staffName: "David Miller",
-    activity: "LEAVE APPROVED",
-    activityColor: "bg-blue-600 text-white",
-    branch: "Abuja Branch",
-    performedBy: "M. Adams",
-  },
-  {
-    date: "Oct 23,",
-    time: "04:30 PM",
-    staffName: "Grace Ibeh",
-    activity: "UPDATE INFO",
-    activityColor: "bg-amber-500 text-white",
-    branch: "Ibadan Hub",
-    performedBy: "Admin",
-  },
-  {
-    date: "Oct 23,",
-    time: "11:20 AM",
-    staffName: "John Doe",
-    activity: "SALARY PAID",
-    activityColor: "bg-green-600 text-white",
-    branch: "Lagos HQ",
-    performedBy: "Finance",
-  },
-];
-
-/* ─── Branch Performance ─── */
-const branchPerformance = [
-  { name: "Lagos Headquarters", attendance: 94, color: "bg-green-500" },
-  { name: "Abuja Office", attendance: 88, color: "bg-blue-500" },
-  { name: "Ibadan Regional", attendance: 76, color: "bg-amber-500" },
-];
-
-/* ─── Upcoming Leaves ─── */
-const upcomingLeaves = [
-  {
-    initials: "MA",
-    bgColor: "bg-blue-600",
-    name: "Marcus Aurelius",
-    type: "Annual Leave",
-    detail: "Starts tomorrow",
-  },
-  {
-    initials: "SO",
-    bgColor: "bg-amber-500",
-    name: "Sandra Oh",
-    type: "Sick Leave",
-    detail: "Till Oct 30",
-  },
-];
+import { fetchStaff, fetchLeaveRequests, fetchAttendance, fetchBranches } from "../lib/db";
 
 export default function HRDashboardPage() {
+  const [totalStaff, setTotalStaff] = useState(0);
+  const [presentToday, setPresentToday] = useState(0);
+  const [absentToday, setAbsentToday] = useState(0);
+  const [managerCount, setManagerCount] = useState(0);
+  const [pendingLeaves, setPendingLeaves] = useState(0);
+  const [upcomingLeaves, setUpcomingLeaves] = useState<any[]>([]);
+  const [recentAttendance, setRecentAttendance] = useState<any[]>([]);
+  const [branchPerformance, setBranchPerformance] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [staff, leaves, approved, attendance, branches] = await Promise.all([
+          fetchStaff(),
+          fetchLeaveRequests({ status: "pending" }),
+          fetchLeaveRequests({ status: "approved" }),
+          fetchAttendance(),
+          fetchBranches(),
+        ]);
+        setTotalStaff(staff.length);
+        setManagerCount(staff.filter((s: any) => (s.role || s.position || '').toLowerCase().includes('manager')).length);
+        setPendingLeaves(leaves.length);
+        setUpcomingLeaves(approved.slice(0, 3));
+
+        // Today's attendance
+        const today = new Date().toISOString().split('T')[0];
+        const todayRecords = attendance.filter((a: any) => a.date === today || a.created_at?.startsWith(today));
+        const presentIds = new Set(todayRecords.filter((a: any) => a.status === 'present' || a.clock_in).map((a: any) => a.staff_id));
+        setPresentToday(presentIds.size);
+        setAbsentToday(Math.max(0, staff.length - presentIds.size));
+        setRecentAttendance(attendance.slice(0, 4));
+
+        // Branch performance from attendance
+        if (branches.length > 0) {
+          const bColors = ['bg-green-500','bg-blue-500','bg-amber-500','bg-red-400','bg-purple-500'];
+          const bPerf = branches.slice(0, 5).map((b: any, idx: number) => {
+            const branchStaff = staff.filter((s: any) => s.branch_id === b.id).length;
+            const branchPresent = todayRecords.filter((a: any) => {
+              const s = staff.find((st: any) => st.id === a.staff_id);
+              return s?.branch_id === b.id && (a.status === 'present' || a.clock_in);
+            }).length;
+            const pct = branchStaff > 0 ? Math.round((branchPresent / branchStaff) * 100) : 0;
+            return { name: b.name, attendance: pct, color: bColors[idx % bColors.length] };
+          });
+          setBranchPerformance(bPerf);
+        }
+      } catch {}
+      setLoading(false);
+    })();
+  }, []);
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
@@ -123,12 +103,12 @@ export default function HRDashboardPage() {
             <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center">
               <Users className="w-4 h-4 text-blue-600" />
             </div>
-            <span className="text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">
-              +2.4%
+            <span className="text-[10px] font-semibold text-green-600 bg-green-50 px-1.5 py-0.5 rounded">
+              Active
             </span>
           </div>
           <p className="text-xs text-gray-400 font-medium">Total Staff</p>
-          <p className="text-2xl font-bold text-navy-900">85</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? '...' : totalStaff}</p>
         </div>
 
         {/* Present Today */}
@@ -142,7 +122,7 @@ export default function HRDashboardPage() {
             </span>
           </div>
           <p className="text-xs text-gray-400 font-medium">Present Today</p>
-          <p className="text-2xl font-bold text-navy-900">72</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? '...' : presentToday}</p>
         </div>
 
         {/* Absent Today */}
@@ -151,12 +131,9 @@ export default function HRDashboardPage() {
             <div className="w-9 h-9 rounded-lg bg-red-50 flex items-center justify-center">
               <UserX className="w-4 h-4 text-red-500" />
             </div>
-            <span className="text-[10px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded">
-              -12%
-            </span>
           </div>
           <p className="text-xs text-gray-400 font-medium">Absent Today</p>
-          <p className="text-2xl font-bold text-navy-900">13</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? '...' : absentToday}</p>
         </div>
 
         {/* Pending Leaves */}
@@ -168,7 +145,7 @@ export default function HRDashboardPage() {
             <span className="w-2 h-2 rounded-full bg-amber-400" />
           </div>
           <p className="text-xs text-gray-400 font-medium">Pending Leaves</p>
-          <p className="text-2xl font-bold text-navy-900">6</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? '...' : pendingLeaves}</p>
         </div>
 
         {/* Active Managers */}
@@ -179,7 +156,7 @@ export default function HRDashboardPage() {
             </div>
           </div>
           <p className="text-xs text-gray-400 font-medium">Active Managers</p>
-          <p className="text-2xl font-bold text-navy-900">12</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? '...' : managerCount}</p>
         </div>
       </div>
 
@@ -215,37 +192,41 @@ export default function HRDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {activities.map((act, i) => (
-                  <tr
-                    key={i}
-                    className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
-                  >
+                {recentAttendance.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-8 text-gray-400 text-sm">No recent activity</td></tr>
+                ) : recentAttendance.map((act: any, i: number) => {
+                  const dateStr = act.date || (act.created_at ? new Date(act.created_at).toLocaleDateString("en-NG", { month: "short", day: "numeric", year: "numeric" }) : "—");
+                  const timeStr = act.clock_in ? new Date(act.clock_in).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" }) : (act.created_at ? new Date(act.created_at).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" }) : "");
+                  const staffName = act.staff ? `${act.staff.first_name || ""} ${act.staff.last_name || ""}`.trim() : "Staff";
+                  const activity = act.clock_in ? "CLOCK IN" : act.clock_out ? "CLOCK OUT" : (act.status || "PRESENT").toUpperCase();
+                  const actColor = act.clock_in ? "bg-green-100 text-green-700" : act.clock_out ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-700";
+                  return (
+                  <tr key={act.id || i} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-4">
-                      <p className="text-sm text-gray-600">{act.date}</p>
-                      <p className="text-xs text-gray-400">{act.time}</p>
+                      <p className="text-sm text-gray-600">{dateStr}</p>
+                      <p className="text-xs text-gray-400">{timeStr}</p>
                     </td>
                     <td className="px-4 py-4">
                       <p className="text-sm font-semibold text-navy-900">
-                        {act.staffName}
+                        {staffName}
                       </p>
                     </td>
                     <td className="px-4 py-4">
                       <span
-                        className={`inline-flex px-2.5 py-1 rounded text-[9px] font-bold tracking-wider ${act.activityColor}`}
+                        className={`inline-flex px-2.5 py-1 rounded text-[9px] font-bold tracking-wider ${actColor}`}
                       >
-                        {act.activity}
+                        {activity}
                       </span>
                     </td>
                     <td className="px-4 py-4">
-                      <p className="text-sm text-gray-600">{act.branch}</p>
+                      <p className="text-sm text-gray-600">{act.branch?.name || "—"}</p>
                     </td>
                     <td className="px-4 py-4">
-                      <p className="text-sm text-gray-600">
-                        {act.performedBy}
-                      </p>
+                      <p className="text-sm text-gray-600">System</p>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -353,23 +334,27 @@ export default function HRDashboardPage() {
             </h2>
 
             <div className="space-y-4">
-              {upcomingLeaves.map((leave, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <div
-                    className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${leave.bgColor}`}
-                  >
-                    {leave.initials}
+              {upcomingLeaves.length === 0 ? (
+                <p className="text-sm text-gray-400">No upcoming leaves</p>
+              ) : upcomingLeaves.map((leave, i) => {
+                const initials = (leave.staff?.first_name?.[0] ?? '') + (leave.staff?.last_name?.[0] ?? '');
+                const bgColors = ['bg-blue-600','bg-amber-500','bg-green-600'];
+                return (
+                  <div key={leave.id ?? i} className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${bgColors[i % bgColors.length]}`}>
+                      {initials.toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-navy-900">
+                        {leave.staff?.first_name} {leave.staff?.last_name}
+                      </p>
+                      <p className="text-xs text-gray-400">
+                        {leave.leave_type} \u00b7 {new Date(leave.start_date).toLocaleDateString()} - {new Date(leave.end_date).toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-navy-900">
-                      {leave.name}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {leave.type} · {leave.detail}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   FileText,
   Download,
@@ -12,7 +12,16 @@ import {
   RefreshCcw,
   Eye,
   Printer,
+  Loader2,
 } from "lucide-react";
+import {
+  fetchDashboardStats,
+  fetchMembers,
+  fetchLoanApplications,
+  fetchSavingsTransactions,
+  fetchFinanceTransactions,
+  fetchBranches,
+} from "../lib/db";
 
 /* ─── Report Types ─── */
 interface ReportType {
@@ -31,7 +40,7 @@ const reportTypes: ReportType[] = [
     description: "Comprehensive overview of income, expenses, and net position",
     category: "Financial",
     icon: TrendingUp,
-    lastGenerated: "Oct 24, 2023",
+    lastGenerated: "—",
   },
   {
     id: "2",
@@ -39,7 +48,7 @@ const reportTypes: ReportType[] = [
     description: "Detailed member registration, demographics, and status analysis",
     category: "Membership",
     icon: Users,
-    lastGenerated: "Oct 22, 2023",
+    lastGenerated: "—",
   },
   {
     id: "3",
@@ -47,7 +56,7 @@ const reportTypes: ReportType[] = [
     description: "Active loans, repayments, overdue tracking, and risk analysis",
     category: "Loans",
     icon: Wallet,
-    lastGenerated: "Oct 23, 2023",
+    lastGenerated: "—",
   },
   {
     id: "4",
@@ -55,7 +64,7 @@ const reportTypes: ReportType[] = [
     description: "Total deposits, withdrawals, and savings growth across all products",
     category: "Savings",
     icon: BarChart3,
-    lastGenerated: "Oct 21, 2023",
+    lastGenerated: "—",
   },
   {
     id: "5",
@@ -63,7 +72,7 @@ const reportTypes: ReportType[] = [
     description: "Comparative analysis of all branches - collections, membership, and growth",
     category: "Branches",
     icon: Building2,
-    lastGenerated: "Oct 20, 2023",
+    lastGenerated: "—",
   },
   {
     id: "6",
@@ -71,21 +80,68 @@ const reportTypes: ReportType[] = [
     description: "Complete monthly transactional statement for regulatory compliance",
     category: "Financial",
     icon: FileText,
-    lastGenerated: "Oct 19, 2023",
+    lastGenerated: "—",
   },
 ];
 
-const recentReports = [
-  { name: "Financial Summary - October 2023", type: "PDF", size: "2.4 MB", date: "Oct 24, 2023", generatedBy: "Admin" },
-  { name: "Loan Portfolio Q3 Report", type: "Excel", size: "1.8 MB", date: "Oct 23, 2023", generatedBy: "Finance Dept" },
-  { name: "Membership Growth Report", type: "PDF", size: "960 KB", date: "Oct 22, 2023", generatedBy: "Admin" },
-  { name: "Branch Performance - September", type: "PDF", size: "1.2 MB", date: "Oct 20, 2023", generatedBy: "Admin" },
-  { name: "Savings Analysis 2023", type: "Excel", size: "3.1 MB", date: "Oct 19, 2023", generatedBy: "Finance Dept" },
-];
+const recentReports: { name: string; type: string; size: string; date: string; generatedBy: string }[] = [];
 
 export default function ReportsPage() {
   const [selectedCategory, setSelectedCategory] = useState("All");
+  const [generating, setGenerating] = useState<string | null>(null);
+  const [generatedReports, setGeneratedReports] = useState<typeof recentReports>([]);
+  const [stats, setStats] = useState({ totalMembers: 0, activeLoans: 0, totalSavings: 0, totalBranches: 0 });
+  const [loading, setLoading] = useState(true);
   const categories = ["All", "Financial", "Membership", "Loans", "Savings", "Branches"];
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const ds = await fetchDashboardStats();
+        setStats(ds as any);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  const handleGenerate = async (reportId: string, reportName: string) => {
+    setGenerating(reportId);
+    try {
+      let csvContent = "";
+      let rows: string[][] = [];
+      if (reportId === "1" || reportId === "6") {
+        const { data } = await fetchFinanceTransactions({ page: 1, pageSize: 500 });
+        rows = [["Date", "Type", "Category", "Description", "Amount", "Branch"]];
+        data.forEach((t: any) => rows.push([t.date, t.type, t.category, t.description, t.amount, t.branch?.name || ""]));
+      } else if (reportId === "2") {
+        const { data } = await fetchMembers({ page: 1, pageSize: 500 });
+        rows = [["Member ID", "First Name", "Last Name", "Email", "Phone", "Status", "Type", "Created"]];
+        data.forEach((m: any) => rows.push([m.member_id, m.first_name, m.last_name, m.email || "", m.phone || "", m.status, m.member_type || "", m.created_at]));
+      } else if (reportId === "3") {
+        const { data } = await fetchLoanApplications({ page: 1, pageSize: 500 });
+        rows = [["Loan ID", "Member", "Amount Requested", "Amount Approved", "Status", "Type", "Created"]];
+        data.forEach((l: any) => rows.push([l.loan_id || "", l.member ? `${l.member.first_name} ${l.member.last_name}` : "", l.amount_requested, l.amount_approved || "", l.status, l.loan_type || "", l.created_at]));
+      } else if (reportId === "4") {
+        const { data } = await fetchSavingsTransactions({ page: 1, pageSize: 500 });
+        rows = [["Transaction ID", "Member", "Type", "Amount", "Date"]];
+        data.forEach((t: any) => rows.push([t.transaction_id || "", t.member ? `${t.member.first_name} ${t.member.last_name}` : "", t.type, t.amount, t.created_at]));
+      } else if (reportId === "5") {
+        const branches = await fetchBranches();
+        rows = [["Branch Name", "Code", "Location", "Manager", "Status"]];
+        branches.forEach((b: any) => rows.push([b.name, b.code || "", b.location || "", b.manager?.full_name || "", b.status]));
+      }
+      csvContent = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${reportName.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setGeneratedReports(prev => [{ name: `${reportName} - ${new Date().toLocaleDateString()}`, type: "CSV", size: `${(csvContent.length / 1024).toFixed(0)} KB`, date: new Date().toLocaleDateString(), generatedBy: "You" }, ...prev]);
+    } catch (e) { console.error(e); }
+    setGenerating(null);
+  };
 
   const filtered =
     selectedCategory === "All"
@@ -105,7 +161,7 @@ export default function ReportsPage() {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">
             <Calendar className="w-4 h-4 text-gray-400" />
-            Oct 1 – Oct 24, 2023
+            {new Date(new Date().getFullYear(), new Date().getMonth(), 1).toLocaleDateString("en-NG", { month: "short", day: "numeric" })} – {new Date().toLocaleDateString("en-NG", { month: "short", day: "numeric", year: "numeric" })}
             <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
           </div>
         </div>
@@ -115,35 +171,31 @@ export default function ReportsPage() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
-            <FileText className="w-4 h-4 text-green-600" />
-            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Reports Generated</p>
+            <Users className="w-4 h-4 text-green-600" />
+            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Total Members</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">148</p>
-          <p className="text-xs text-green-600 font-medium mt-1">This Month</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : stats.totalMembers}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
-            <Download className="w-4 h-4 text-blue-600" />
-            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Downloads</p>
+            <Wallet className="w-4 h-4 text-blue-600" />
+            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Active Loans</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">312</p>
-          <p className="text-xs text-blue-600 font-medium mt-1">All Time</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : stats.activeLoans}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
-            <RefreshCcw className="w-4 h-4 text-amber-500" />
-            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Scheduled</p>
+            <TrendingUp className="w-4 h-4 text-amber-500" />
+            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Total Savings</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">8</p>
-          <p className="text-xs text-amber-500 font-medium mt-1">Auto-generated</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : `₦ ${stats.totalSavings.toLocaleString()}`}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
-            <BarChart3 className="w-4 h-4 text-purple-600" />
-            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Report Types</p>
+            <Building2 className="w-4 h-4 text-purple-600" />
+            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Branches</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">6</p>
-          <p className="text-xs text-gray-400 font-medium mt-1">Available</p>
+          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : stats.totalBranches}</p>
         </div>
       </div>
 
@@ -191,11 +243,19 @@ export default function ReportsPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 mt-4">
-                <button className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors">
-                  <BarChart3 className="w-3.5 h-3.5" />
-                  Generate
+                <button
+                  onClick={() => handleGenerate(report.id, report.name)}
+                  disabled={generating === report.id}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+                >
+                  {generating === report.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <BarChart3 className="w-3.5 h-3.5" />}
+                  {generating === report.id ? "Generating..." : "Generate"}
                 </button>
-                <button className="px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+                <button
+                  onClick={() => handleGenerate(report.id, report.name)}
+                  disabled={generating === report.id}
+                  className="px-3 py-2 border border-gray-200 rounded-lg text-xs font-medium text-navy-900 hover:bg-gray-50 transition-colors disabled:opacity-50"
+                >
                   <Download className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -228,7 +288,9 @@ export default function ReportsPage() {
             </tr>
           </thead>
           <tbody>
-            {recentReports.map((r, i) => (
+            {generatedReports.length === 0 ? (
+              <tr><td colSpan={6} className="px-6 py-8 text-center text-gray-400 text-sm">No reports generated yet. Click "Generate" above to create one.</td></tr>
+            ) : generatedReports.map((r, i) => (
               <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                 <td className="px-6 py-4">
                   <div className="flex items-center gap-3">

@@ -1,4 +1,4 @@
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import DashboardPage from "./DashboardPage";
 import BranchManagerDashboard from "./BranchManagerDashboard";
 import FinanceOfficerDashboard from "./FinanceOfficerDashboard";
@@ -6,6 +6,7 @@ import LoanOfficerDashboard from "./LoanOfficerDashboard";
 import FrontDeskDashboard from "./FrontDeskDashboard";
 import AuditorDashboard from "./AuditorDashboard";
 import HRDashboardPage from "./HRDashboardPage";
+import NewUserDashboard from "./NewUserDashboard";
 
 export default function RoleDashboardRouter() {
   const { user } = useAuth();
@@ -25,7 +26,9 @@ export default function RoleDashboardRouter() {
       return <AuditorDashboard />;
     case "hr_manager":
       return <HRDashboardPage />;
+    case "unassigned":
+      return <NewUserDashboard />;
     default:
-      return <DashboardPage />;
+      return <NewUserDashboard />;
   }
 }

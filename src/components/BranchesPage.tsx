@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Search,
@@ -11,47 +11,9 @@ import {
   ChevronLeft,
   ChevronRight,
   Building2,
+  Loader2,
 } from "lucide-react";
-
-/* ─── Mock data ─── */
-const branches = [
-  {
-    name: "Lagos Headquarters",
-    code: "LAG-001",
-    location: "Victoria Island, Lagos",
-    manager: "Babatunde O.",
-    managerInitials: "BO",
-    members: 1240,
-    savings: "₦45.2M",
-    activeLoans: 124,
-    staff: 24,
-    status: "Active" as const,
-  },
-  {
-    name: "Abuja Central",
-    code: "ABJ-004",
-    location: "Wuse II, Abuja",
-    manager: "Chioma A.",
-    managerInitials: "CA",
-    members: 856,
-    savings: "₦22.8M",
-    activeLoans: 92,
-    staff: 12,
-    status: "Active" as const,
-  },
-  {
-    name: "Ibadan North",
-    code: "IBD-012",
-    location: "Bodija, Ibadan",
-    manager: "Samuel L.",
-    managerInitials: "SL",
-    members: 312,
-    savings: "₦5.4M",
-    activeLoans: 15,
-    staff: 4,
-    status: "Inactive" as const,
-  },
-];
+import { fetchBranches } from "../lib/db";
 
 export default function BranchesPage() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -59,6 +21,19 @@ export default function BranchesPage() {
   const [locationFilter, setLocationFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
   const [currentPage] = useState(1);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const data = await fetchBranches();
+        setBranches(data);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -170,9 +145,13 @@ export default function BranchesPage() {
               </tr>
             </thead>
             <tbody>
-              {branches.map((branch, i) => (
+              {loading ? (
+                <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" /></td></tr>
+              ) : branches.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400 text-sm">No branches found</td></tr>
+              ) : branches.map((branch: any) => (
                 <tr
-                  key={i}
+                  key={branch.id}
                   className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition-colors"
                 >
                   {/* Branch Details */}
@@ -194,41 +173,30 @@ export default function BranchesPage() {
 
                   {/* Location */}
                   <td className="px-4 py-5 text-sm text-gray-500">
-                    {branch.location}
+                    {branch.city}, {branch.state}
                   </td>
 
                   {/* Manager */}
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-2">
                       <span className="w-8 h-8 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center text-xs font-bold flex-shrink-0">
-                        {branch.managerInitials}
+                        {branch.manager?.full_name?.split(" ").map((n: string) => n[0]).join("") ?? "—"}
                       </span>
                       <span className="text-sm font-medium text-navy-900">
-                        {branch.manager}
+                        {branch.manager?.full_name ?? "Unassigned"}
                       </span>
                     </div>
                   </td>
 
                   {/* Metrics */}
                   <td className="px-4 py-5 text-center">
-                    <p className="text-sm font-bold text-navy-900">
-                      {branch.members.toLocaleString()}
-                    </p>
+                    <p className="text-sm font-bold text-navy-900">—</p>
                     <p className="text-[10px] text-gray-400">Members</p>
-                    <p className="text-xs font-semibold text-green-600 mt-1">
-                      {branch.savings}
-                    </p>
-                    <p className="text-[10px] text-green-500">Savings</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">
-                      {branch.activeLoans} Active Loans
-                    </p>
                   </td>
 
                   {/* Staff */}
                   <td className="px-4 py-5 text-center">
-                    <p className="text-sm font-bold text-navy-900">
-                      {branch.staff}
-                    </p>
+                    <p className="text-sm font-bold text-navy-900">—</p>
                     <p className="text-[10px] text-gray-400">Staff</p>
                   </td>
 
@@ -236,19 +204,19 @@ export default function BranchesPage() {
                   <td className="px-4 py-5 text-center">
                     <span
                       className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
-                        branch.status === "Active"
+                        branch.status === "active"
                           ? "bg-green-50 text-green-700"
                           : "bg-gray-100 text-gray-500"
                       }`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
-                          branch.status === "Active"
+                          branch.status === "active"
                             ? "bg-green-500"
                             : "bg-gray-400"
                         }`}
                       />
-                      {branch.status}
+                      {branch.status === "active" ? "Active" : "Inactive"}
                     </span>
                   </td>
 
@@ -256,7 +224,7 @@ export default function BranchesPage() {
                   <td className="px-4 py-5">
                     <div className="flex items-center justify-center gap-2">
                       <Link
-                        to={`/branches/${branch.code.toLowerCase()}`}
+                        to={`/branches/${branch.id}`}
                         title="View"
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
                       >
@@ -270,11 +238,11 @@ export default function BranchesPage() {
                       </button>
                       <button
                         title={
-                          branch.status === "Active" ? "Deactivate" : "Activate"
+                          branch.status === "active" ? "Deactivate" : "Activate"
                         }
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
                       >
-                        {branch.status === "Active" ? (
+                        {branch.status === "active" ? (
                           <Ban className="w-4 h-4" />
                         ) : (
                           <CheckCircle2 className="w-4 h-4" />

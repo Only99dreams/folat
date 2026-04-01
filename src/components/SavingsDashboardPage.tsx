@@ -1,16 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   CreditCard,
   Upload,
   FileDown,
   ChevronDown,
-  TrendingUp,
-  TrendingDown,
   Eye,
   FileText,
   ChevronLeft,
   ChevronRight,
+  Loader2,
 } from "lucide-react";
 import {
   BarChart,
@@ -20,125 +19,81 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
-
-/* ─── Chart Data ─── */
-const chartData = [
-  { day: "MON", deposits: 180, withdrawals: 80 },
-  { day: "TUE", deposits: 250, withdrawals: 100 },
-  { day: "WED", deposits: 200, withdrawals: 90 },
-  { day: "THU", deposits: 220, withdrawals: 110 },
-  { day: "FRI", deposits: 300, withdrawals: 60 },
-  { day: "SAT", deposits: 160, withdrawals: 140 },
-  { day: "SUN", deposits: 100, withdrawals: 50 },
-];
-
-/* ─── Transaction Data ─── */
-interface Transaction {
-  date: string;
-  time: string;
-  initials: string;
-  initialsColor: string;
-  name: string;
-  txnId: string;
-  branch: string;
-  type: "DEPOSIT" | "WITHDRAW";
-  amount: string;
-}
-
-const transactions: Transaction[] = [
-  {
-    date: "Oct 24,",
-    time: "14:30",
-    initials: "AA",
-    initialsColor: "bg-navy-900 text-white",
-    name: "Abiola Adeyemi",
-    txnId: "TXN-89231",
-    branch: "Lagos HQ",
-    type: "DEPOSIT",
-    amount: "₦ 450,000",
-  },
-  {
-    date: "Oct 24,",
-    time: "12:15",
-    initials: "CO",
-    initialsColor: "bg-green-600 text-white",
-    name: "Chidi Okoro",
-    txnId: "TXN-89230",
-    branch: "Abuja Central",
-    type: "WITHDRAW",
-    amount: "₦ 75,000",
-  },
-  {
-    date: "Oct 24,",
-    time: "11:05",
-    initials: "FN",
-    initialsColor: "bg-amber-500 text-white",
-    name: "Fatima Nnamdi",
-    txnId: "TXN-89229",
-    branch: "Kano North",
-    type: "DEPOSIT",
-    amount: "₦ 1,200,000",
-  },
-  {
-    date: "Oct 24,",
-    time: "09:45",
-    initials: "MI",
-    initialsColor: "bg-gray-500 text-white",
-    name: "Musa Ibrahim",
-    txnId: "TXN-89228",
-    branch: "Lagos HQ",
-    type: "DEPOSIT",
-    amount: "₦ 30,000",
-  },
-];
-
-/* ─── Top Savers ─── */
-const topSavers = [
-  {
-    name: "Ngozi Obi",
-    id: "Member #1024",
-    amount: "₦ 12.5M",
-    tier: "Diamond Tier",
-    tierColor: "text-blue-500",
-    initials: "NO",
-    bg: "bg-navy-900",
-  },
-  {
-    name: "Emeka Williams",
-    id: "Member #6042",
-    amount: "₦ 10.2M",
-    tier: "Gold Tier",
-    tierColor: "text-amber-500",
-    initials: "EW",
-    bg: "bg-green-600",
-  },
-  {
-    name: "Sarah Bello",
-    id: "Member #2211",
-    amount: "₦ 9.8M",
-    tier: "Gold Tier",
-    tierColor: "text-amber-500",
-    initials: "SB",
-    bg: "bg-amber-500",
-  },
-  {
-    name: "Oluwatobi J.",
-    id: "Member #1509",
-    amount: "₦ 8.4M",
-    tier: "Silver Tier",
-    tierColor: "text-gray-500",
-    initials: "OJ",
-    bg: "bg-gray-400",
-  },
-];
+import { fetchSavingsTransactions, fetchSavingsAccounts } from "../lib/db";
+import { supabase } from "../lib/supabase";
 
 export default function SavingsDashboardPage() {
   const [chartRange, setChartRange] = useState("7d");
   const [currentPage, setCurrentPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({ totalSavings: 0, activeSavers: 0, monthlyDeposits: 0, monthlyWithdrawals: 0 });
+  const [recentTxns, setRecentTxns] = useState<any[]>([]);
+  const [topSavers, setTopSavers] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
 
   const ranges = ["7d", "30d", "6m", "12m"];
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        // Total savings & active savers
+        const { data: accounts } = await supabase.from("savings_accounts").select("balance");
+        const total = (accounts ?? []).reduce((s: number, a: any) => s + Number(a.balance), 0);
+
+        // Monthly deposits & withdrawals
+        const monthStart = new Date();
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+        const { data: monthTxns } = await supabase
+          .from("savings_transactions")
+          .select("type, amount")
+          .gte("created_at", monthStart.toISOString());
+        const monthlyDeposits = (monthTxns ?? []).filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0);
+        const monthlyWithdrawals = (monthTxns ?? []).filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0);
+
+        setStats({ totalSavings: total, activeSavers: accounts?.length ?? 0, monthlyDeposits, monthlyWithdrawals });
+
+        // Recent transactions
+        const { data: txns } = await fetchSavingsTransactions({ page: 1, pageSize: 6 });
+        setRecentTxns(txns);
+
+        // Top savers
+        const { data: top } = await supabase
+          .from("savings_accounts")
+          .select("balance, member:members(first_name, last_name, member_id)")
+          .order("balance", { ascending: false })
+          .limit(4);
+        setTopSavers(top ?? []);
+
+        // Chart data — last 7 days from real transactions
+        const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+        const now = new Date();
+        const weekAgo = new Date(now);
+        weekAgo.setDate(weekAgo.getDate() - 6);
+        weekAgo.setHours(0, 0, 0, 0);
+        const { data: chartTxns } = await supabase
+          .from("savings_transactions")
+          .select("type, amount, created_at")
+          .gte("created_at", weekAgo.toISOString());
+        const cData: any[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(now);
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().slice(0, 10);
+          const dayTxns = (chartTxns ?? []).filter((t: any) => t.created_at?.slice(0, 10) === dateStr);
+          cData.push({
+            day: days[d.getDay()],
+            deposits: dayTxns.filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0),
+            withdrawals: dayTxns.filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0),
+          });
+        }
+        setChartData(cData);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -167,11 +122,7 @@ export default function SavingsDashboardPage() {
             Total Savings
           </p>
           <div className="flex items-baseline gap-2 mt-1">
-            <p className="text-2xl font-bold text-navy-900">₦2.45B</p>
-            <span className="flex items-center gap-0.5 text-xs font-semibold text-green-600">
-              <TrendingUp className="w-3 h-3" />
-              +2.4%
-            </span>
+            <p className="text-2xl font-bold text-navy-900">₦{stats.totalSavings.toLocaleString()}</p>
           </div>
         </div>
 
@@ -181,14 +132,7 @@ export default function SavingsDashboardPage() {
             Monthly Deposits
           </p>
           <div className="flex items-baseline gap-2 mt-1">
-            <p className="text-2xl font-bold text-navy-900">₦120M</p>
-            <span className="flex items-center gap-0.5 text-xs font-semibold text-green-600">
-              <TrendingUp className="w-3 h-3" />
-              +1.2%
-            </span>
-          </div>
-          <div className="mt-2 w-full bg-gray-200 rounded-full h-1">
-            <div className="bg-green-500 h-1 rounded-full w-3/4" />
+            <p className="text-2xl font-bold text-navy-900">₦{stats.monthlyDeposits.toLocaleString()}</p>
           </div>
         </div>
 
@@ -198,11 +142,7 @@ export default function SavingsDashboardPage() {
             Withdrawals
           </p>
           <div className="flex items-baseline gap-2 mt-1">
-            <p className="text-2xl font-bold text-navy-900">₦45M</p>
-            <span className="flex items-center gap-0.5 text-xs font-semibold text-red-500">
-              <TrendingDown className="w-3 h-3" />
-              -0.5%
-            </span>
+            <p className="text-2xl font-bold text-navy-900">₦{stats.monthlyWithdrawals.toLocaleString()}</p>
           </div>
         </div>
 
@@ -212,11 +152,7 @@ export default function SavingsDashboardPage() {
             Active Savers
           </p>
           <div className="flex items-baseline gap-2 mt-1">
-            <p className="text-2xl font-bold text-navy-900">10,540</p>
-            <span className="flex items-center gap-0.5 text-xs font-semibold text-green-600">
-              <TrendingUp className="w-3 h-3" />
-              +4.1%
-            </span>
+            <p className="text-2xl font-bold text-navy-900">{stats.activeSavers.toLocaleString()}</p>
           </div>
         </div>
 
@@ -226,11 +162,7 @@ export default function SavingsDashboardPage() {
             Avg. Balance
           </p>
           <div className="flex items-baseline gap-2 mt-1">
-            <p className="text-2xl font-bold text-navy-900">₦232K</p>
-            <span className="flex items-center gap-0.5 text-xs font-semibold text-green-600">
-              <TrendingUp className="w-3 h-3" />
-              +0.8%
-            </span>
+            <p className="text-2xl font-bold text-navy-900">₦{stats.activeSavers > 0 ? Math.round(stats.totalSavings / stats.activeSavers).toLocaleString() : 0}</p>
           </div>
         </div>
       </div>
@@ -358,50 +290,54 @@ export default function SavingsDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((txn, i) => (
+                  {loading ? (
+                    <tr><td colSpan={6} className="text-center py-8"><Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" /></td></tr>
+                  ) : recentTxns.length === 0 ? (
+                    <tr><td colSpan={6} className="text-center py-8 text-gray-400 text-sm">No transactions yet</td></tr>
+                  ) : recentTxns.map((txn: any) => {
+                    const d = new Date(txn.created_at);
+                    return (
                     <tr
-                      key={i}
+                      key={txn.id}
                       className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                     >
                       {/* Date */}
                       <td className="px-6 py-4">
-                        <p className="text-sm text-navy-900">{txn.date}</p>
-                        <p className="text-xs text-gray-400">{txn.time}</p>
+                        <p className="text-sm text-navy-900">{d.toLocaleDateString()}</p>
+                        <p className="text-xs text-gray-400">{d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                       </td>
 
                       {/* Member */}
                       <td className="px-4 py-4">
                         <div className="flex items-center gap-2.5">
-                          <div
-                            className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${txn.initialsColor}`}
-                          >
-                            {txn.initials}
+                          <div className="w-8 h-8 rounded-full bg-navy-900 flex items-center justify-center text-[10px] font-bold text-white">
+                            {txn.member?.first_name?.[0]}{txn.member?.last_name?.[0]}
                           </div>
                           <span className="text-sm font-medium text-navy-900">
-                            {txn.name}
+                            {txn.member?.first_name} {txn.member?.last_name}
                           </span>
                         </div>
                       </td>
 
                       {/* Transaction ID */}
                       <td className="px-4 py-4">
-                        <p className="text-sm text-gray-500">{txn.txnId}</p>
+                        <p className="text-sm text-gray-500">{txn.transaction_id}</p>
                       </td>
 
                       {/* Branch */}
                       <td className="px-4 py-4">
-                        <p className="text-sm text-gray-600">{txn.branch}</p>
+                        <p className="text-sm text-gray-600">{txn.branch?.name ?? "—"}</p>
                       </td>
 
                       {/* Type */}
                       <td className="px-4 py-4">
-                        {txn.type === "DEPOSIT" ? (
+                        {txn.type === "deposit" ? (
                           <span className="inline-flex px-2.5 py-1 rounded text-[11px] font-bold bg-green-100 text-green-700">
                             DEPOSIT
                           </span>
                         ) : (
                           <span className="inline-flex px-2.5 py-1 rounded text-[11px] font-bold bg-red-100 text-red-600">
-                            WITHDRAW
+                            WITHDRAWAL
                           </span>
                         )}
                       </td>
@@ -409,11 +345,12 @@ export default function SavingsDashboardPage() {
                       {/* Amount */}
                       <td className="px-4 py-4 text-right">
                         <p className="text-sm font-semibold text-navy-900">
-                          {txn.amount}
+                          ₦{Number(txn.amount).toLocaleString()}
                         </p>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -507,25 +444,20 @@ export default function SavingsDashboardPage() {
             </h3>
 
             <div className="space-y-4">
-              {topSavers.map((saver, i) => (
+              {topSavers.map((saver: any, i: number) => (
                 <div key={i} className="flex items-center gap-3">
-                  <div
-                    className={`w-10 h-10 rounded-full ${saver.bg} flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}
-                  >
-                    {saver.initials}
+                  <div className="w-10 h-10 rounded-full bg-navy-900 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                    {saver.member?.first_name?.[0]}{saver.member?.last_name?.[0]}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-navy-900">
-                      {saver.name}
+                      {saver.member?.first_name} {saver.member?.last_name}
                     </p>
-                    <p className="text-xs text-gray-400">{saver.id}</p>
+                    <p className="text-xs text-gray-400">{saver.member?.member_id}</p>
                   </div>
                   <div className="text-right flex-shrink-0">
                     <p className="text-sm font-bold text-navy-900">
-                      {saver.amount}
-                    </p>
-                    <p className={`text-[10px] font-semibold ${saver.tierColor}`}>
-                      {saver.tier}
+                      ₦{Number(saver.balance).toLocaleString()}
                     </p>
                   </div>
                 </div>

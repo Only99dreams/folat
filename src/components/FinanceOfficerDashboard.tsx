@@ -1,5 +1,6 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import {
   CreditCard,
   TrendingUp,
@@ -8,6 +9,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Clock,
+  Loader2,
 } from "lucide-react";
 import {
   AreaChart,
@@ -18,40 +20,58 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { fetchFinanceTransactions, fetchFundRequests, fetchDashboardStats } from "../lib/db";
 
-/* ─── Chart Data ─── */
-const revenueData = [
-  { month: "Jan", income: 1800, expenses: 900 },
-  { month: "Feb", income: 2200, expenses: 1100 },
-  { month: "Mar", income: 2000, expenses: 800 },
-  { month: "Apr", income: 2600, expenses: 1200 },
-  { month: "May", income: 2400, expenses: 1000 },
-  { month: "Jun", income: 2800, expenses: 1100 },
-];
-
-const stats = [
-  { label: "Total Income (MTD)", value: "₦ 14.8M", change: "+12.5%", up: true, icon: ArrowUpRight, color: "text-green-600", bg: "bg-green-50" },
-  { label: "Total Expenses (MTD)", value: "₦ 6.1M", change: "+3.2%", up: false, icon: ArrowDownRight, color: "text-red-600", bg: "bg-red-50" },
-  { label: "Net Profit", value: "₦ 8.7M", change: "+18.1%", up: true, icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50" },
-  { label: "Pending Disbursements", value: "₦ 2.3M", change: "4 loans", up: false, icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
-];
-
-const recentTransactions = [
-  { type: "income", desc: "Loan interest — Batch #B421", amount: "+₦ 425,000", time: "10 mins ago", status: "Recorded" },
-  { type: "expense", desc: "Office supplies — Lagos HQ", amount: "-₦ 85,000", time: "45 mins ago", status: "Approved" },
-  { type: "income", desc: "Membership fees — 12 new members", amount: "+₦ 120,000", time: "2 hours ago", status: "Recorded" },
-  { type: "expense", desc: "Staff welfare — Abuja branch", amount: "-₦ 150,000", time: "3 hours ago", status: "Pending" },
-  { type: "income", desc: "Loan repayment — Batch #B420", amount: "+₦ 890,000", time: "5 hours ago", status: "Recorded" },
-];
-
-const pendingApprovals = [
-  { from: "Ikeja Branch", desc: "Petty cash top-up", amount: "₦ 75,000" },
-  { from: "PH Branch", desc: "Equipment purchase", amount: "₦ 250,000" },
-  { from: "Abuja Branch", desc: "Office maintenance", amount: "₦ 125,000" },
+/* ─── Chart placeholder ─── */
+const defaultChartData = [
+  { month: "Jan", income: 0, expenses: 0 },
+  { month: "Feb", income: 0, expenses: 0 },
+  { month: "Mar", income: 0, expenses: 0 },
+  { month: "Apr", income: 0, expenses: 0 },
+  { month: "May", income: 0, expenses: 0 },
+  { month: "Jun", income: 0, expenses: 0 },
 ];
 
 export default function FinanceOfficerDashboard() {
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [totalIncome, setTotalIncome] = useState(0);
+  const [totalExpenses, setTotalExpenses] = useState(0);
+  const [recentTxns, setRecentTxns] = useState<any[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<any[]>([]);
+  const [pendingDisbursements, setPendingDisbursements] = useState(0);
+  const [revenueData] = useState(defaultChartData);
+  const [now] = useState(() => Date.now());
+
+  const fmt = (n: number) => n >= 1e9 ? `₦ ${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `₦ ${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `₦ ${(n / 1e3).toFixed(0)}K` : `₦ ${n.toLocaleString()}`;
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [incomeRes, expenseRes, txnRes, fundRes, dashStats] = await Promise.all([
+          fetchFinanceTransactions({ type: "income", page: 1, pageSize: 1000 }),
+          fetchFinanceTransactions({ type: "expense", page: 1, pageSize: 1000 }),
+          fetchFinanceTransactions({ page: 1, pageSize: 5 }),
+          fetchFundRequests({ status: "pending", page: 1, pageSize: 5 }),
+          fetchDashboardStats(),
+        ]);
+        setTotalIncome(incomeRes.data.reduce((s: number, t: any) => s + Number(t.amount), 0));
+        setTotalExpenses(expenseRes.data.reduce((s: number, t: any) => s + Number(t.amount), 0));
+        setRecentTxns(txnRes.data);
+        setPendingRequests(fundRes.data);
+        setPendingDisbursements(dashStats.pendingLoans);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  const netProfit = totalIncome - totalExpenses;
+  const stats = [
+    { label: "Total Income (MTD)", value: fmt(totalIncome), icon: ArrowUpRight, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Total Expenses (MTD)", value: fmt(totalExpenses), icon: ArrowDownRight, color: "text-red-600", bg: "bg-red-50" },
+    { label: "Net Profit", value: fmt(netProfit), icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Pending Disbursements", value: String(pendingDisbursements), icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -73,7 +93,9 @@ export default function FinanceOfficerDashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s) => (
+        {loading ? (
+          <div className="col-span-4 flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-green-600" /></div>
+        ) : stats.map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className="flex items-center gap-2 mb-2">
               <div className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center`}>
@@ -81,10 +103,7 @@ export default function FinanceOfficerDashboard() {
               </div>
             </div>
             <p className="text-2xl font-bold text-navy-900">{s.value}</p>
-            <div className="flex items-center justify-between mt-1">
-              <p className="text-xs text-gray-400">{s.label}</p>
-              <span className={`text-xs font-medium ${s.up ? "text-green-600" : "text-red-500"}`}>{s.change}</span>
-            </div>
+            <p className="text-xs text-gray-400 mt-1">{s.label}</p>
           </div>
         ))}
       </div>
@@ -117,13 +136,15 @@ export default function FinanceOfficerDashboard() {
             <Link to="/finance/fund-requests" className="text-sm text-green-600 font-medium hover:text-green-700">View All</Link>
           </div>
           <div className="space-y-4">
-            {pendingApprovals.map((p, i) => (
-              <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-100">
+            {pendingRequests.length === 0 ? (
+              <p className="text-sm text-gray-400">No pending requests.</p>
+            ) : pendingRequests.map((p: any) => (
+              <div key={p.id} className="flex items-center justify-between p-3 rounded-xl bg-amber-50 border border-amber-100">
                 <div>
-                  <p className="text-sm font-medium text-navy-900">{p.from}</p>
-                  <p className="text-xs text-gray-500">{p.desc}</p>
+                  <p className="text-sm font-medium text-navy-900">{p.branch?.name || "—"}</p>
+                  <p className="text-xs text-gray-500">{p.description || p.purpose || "Fund request"}</p>
                 </div>
-                <p className="text-sm font-bold text-amber-700">{p.amount}</p>
+                <p className="text-sm font-bold text-amber-700">₦ {Number(p.amount).toLocaleString()}</p>
               </div>
             ))}
           </div>
@@ -148,8 +169,13 @@ export default function FinanceOfficerDashboard() {
               </tr>
             </thead>
             <tbody>
-              {recentTransactions.map((t, i) => (
-                <tr key={i} className="border-b border-gray-50 last:border-0">
+              {recentTxns.length === 0 ? (
+                <tr><td colSpan={5} className="py-6 text-center text-gray-400 text-sm">No transactions yet.</td></tr>
+              ) : recentTxns.map((t: any) => {
+                const mins = Math.floor((now - new Date(t.date || t.created_at).getTime()) / 60000);
+                const ago = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
+                return (
+                <tr key={t.id} className="border-b border-gray-50 last:border-0">
                   <td className="py-3">
                     {t.type === "income" ? (
                       <span className="flex items-center gap-1 text-green-600"><TrendingUp className="w-3.5 h-3.5" /> Income</span>
@@ -157,18 +183,17 @@ export default function FinanceOfficerDashboard() {
                       <span className="flex items-center gap-1 text-red-500"><TrendingDown className="w-3.5 h-3.5" /> Expense</span>
                     )}
                   </td>
-                  <td className="py-3 font-medium text-navy-900">{t.desc}</td>
-                  <td className={`py-3 font-bold ${t.type === "income" ? "text-green-600" : "text-red-500"}`}>{t.amount}</td>
-                  <td className="py-3">
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                      t.status === "Recorded" ? "bg-green-100 text-green-700" :
-                      t.status === "Approved" ? "bg-blue-100 text-blue-700" :
-                      "bg-amber-100 text-amber-700"
-                    }`}>{t.status}</span>
+                  <td className="py-3 font-medium text-navy-900">{t.description}</td>
+                  <td className={`py-3 font-bold ${t.type === "income" ? "text-green-600" : "text-red-500"}`}>
+                    {t.type === "income" ? "+" : "-"}₦ {Number(t.amount).toLocaleString()}
                   </td>
-                  <td className="py-3 text-gray-400 flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{t.time}</td>
+                  <td className="py-3">
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-100 text-green-700">Recorded</span>
+                  </td>
+                  <td className="py-3 text-gray-400 flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{ago}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

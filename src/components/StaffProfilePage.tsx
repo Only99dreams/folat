@@ -1,69 +1,70 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams } from "react-router-dom";
 import {
   MapPin,
   Mail,
   Phone,
   CalendarDays,
   Briefcase,
-  DollarSign,
+  Loader2,
 } from "lucide-react";
+import { fetchStaffMember, fetchLeaveRequests } from "../lib/db";
 
 /* ─── Tab options ─── */
 const tabs = ["Overview", "Leaves", "Salary", "Documents", "Activity"];
 
-/* ─── Personal Info ─── */
-const personalInfo = [
-  { label: "Full Name", value: "Adeola Olabisi Musa" },
-  { label: "Date of Birth", value: "May 12, 1992" },
-  { label: "Gender", value: "Female" },
-  { label: "Marital Status", value: "Married" },
-  { label: "Address", value: "12, Adekunle St, Yaba, Lagos." },
-];
-
-/* ─── Employment Details ─── */
-const employmentDetails = [
-  { label: "Job Title", value: "Loan Officer" },
-  { label: "Department", value: "Retail Lending" },
-  { label: "Hired Date", value: "Oct 15, 2021" },
-  { label: "Reporting To", value: "Chinedu Okafor (BM)" },
-  { label: "Employment Type", value: "Full-time Permanent" },
-];
-
-/* ─── Earnings ─── */
-const earnings = [
-  { label: "Basic Salary", amount: "₦150,000.00" },
-  { label: "Housing Allowance", amount: "₦40,000.00" },
-  { label: "Transport Allowance", amount: "₦35,000.00" },
-  { label: "Other Allowances", amount: "₦25,000.00" },
-];
-
-/* ─── Deductions ─── */
-const deductions = [
-  { label: "PAYE Tax", amount: "-₦18,500.00" },
-  { label: "Pension (8%)", amount: "-₦12,000.00" },
-  { label: "Loan Repayment", amount: "-₦20,000.00" },
-];
-
-/* ─── Recent Leaves ─── */
-const recentLeaves = [
-  {
-    type: "Casual Leave",
-    startDate: "Aug 10, 2024",
-    endDate: "Aug 11, 2024",
-    days: "2 Days",
-    status: "APPROVED",
-  },
-  {
-    type: "Sick Leave",
-    startDate: "June 04, 2024",
-    endDate: "June 06, 2024",
-    days: "3 Days",
-    status: "APPROVED",
-  },
-];
+const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500","bg-pink-600","bg-teal-600"];
 
 export default function StaffProfilePage() {
+  const { id } = useParams();
   const [activeTab, setActiveTab] = useState("Overview");
+  const [staff, setStaff] = useState<any>(null);
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const s = await fetchStaffMember(id);
+        setStaff(s);
+        const lr = await fetchLeaveRequests({ staff_id: id });
+        setLeaves(lr);
+      } catch {}
+      setLoading(false);
+    })();
+  }, [id]);
+
+  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-navy-900" /></div>;
+  if (!staff) return <div className="text-center py-20 text-gray-500">Staff member not found.</div>;
+
+  const fullName = `${staff.first_name ?? ""} ${staff.last_name ?? ""}`.trim();
+  const initials = `${(staff.first_name?.[0] ?? "").toUpperCase()}${(staff.last_name?.[0] ?? "").toUpperCase()}`;
+  const avatarBg = avatarColors[(fullName.length) % avatarColors.length];
+  const joinedDate = staff.date_joined ? new Date(staff.date_joined) : null;
+  const yearsInOrg = joinedDate ? Math.floor((Date.now() - joinedDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000)) : 0;
+  const approvedLeaves = leaves.filter(l => l.status === "approved");
+  const leaveDaysUsed = approvedLeaves.reduce((sum: number, l: any) => {
+    if (!l.start_date || !l.end_date) return sum;
+    const d = Math.ceil((new Date(l.end_date).getTime() - new Date(l.start_date).getTime()) / (1000*60*60*24)) + 1;
+    return sum + Math.max(d, 0);
+  }, 0);
+
+  const personalInfo = [
+    { label: "Full Name", value: fullName },
+    { label: "Date of Birth", value: staff.date_of_birth ? new Date(staff.date_of_birth).toLocaleDateString("en-NG", { year: "numeric", month: "short", day: "numeric" }) : "—" },
+    { label: "Gender", value: staff.gender ? staff.gender.charAt(0).toUpperCase() + staff.gender.slice(1) : "—" },
+    { label: "Address", value: staff.address || "—" },
+  ];
+
+  const employmentDetails = [
+    { label: "Job Title", value: staff.position || staff.role || "—" },
+    { label: "Branch", value: staff.branch?.name || "—" },
+    { label: "Hired Date", value: joinedDate ? joinedDate.toLocaleDateString("en-NG", { year: "numeric", month: "short", day: "numeric" }) : "—" },
+    { label: "Employment Type", value: staff.employment_type || "Full-time" },
+    { label: "Status", value: staff.status ? staff.status.charAt(0).toUpperCase() + staff.status.slice(1) : "—" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -124,9 +125,9 @@ export default function StaffProfilePage() {
             <p className="text-xs text-gray-400 font-medium">Years in Org</p>
             <CalendarDays className="w-4 h-4 text-gray-300" />
           </div>
-          <p className="text-2xl font-bold text-navy-900">3 Years</p>
+          <p className="text-2xl font-bold text-navy-900">{yearsInOrg} {yearsInOrg === 1 ? "Year" : "Years"}</p>
           <p className="text-xs text-green-600 font-medium mt-1">
-            Promoted last year
+            Since {joinedDate ? joinedDate.getFullYear() : "—"}
           </p>
         </div>
 
@@ -138,9 +139,9 @@ export default function StaffProfilePage() {
             </p>
             <CalendarDays className="w-4 h-4 text-gray-300" />
           </div>
-          <p className="text-2xl font-bold text-navy-900">5 Days</p>
+          <p className="text-2xl font-bold text-navy-900">{leaveDaysUsed} Days</p>
           <p className="text-xs text-gray-400 font-medium mt-1">
-            15 days remaining
+            {Math.max(20 - leaveDaysUsed, 0)} days remaining
           </p>
         </div>
 
@@ -226,67 +227,7 @@ export default function StaffProfilePage() {
       </div>
 
       {/* ─── Monthly Compensation Breakdown ─── */}
-      <div>
-        <h2 className="text-base font-bold text-navy-900 mb-4">
-          Monthly Compensation Breakdown
-        </h2>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          {/* Earnings */}
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100">
-              <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
-                Earnings
-              </p>
-            </div>
-            <div className="px-5 py-3 space-y-3">
-              {earnings.map((item, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">{item.label}</p>
-                  <p className="text-sm font-medium text-navy-900">
-                    {item.amount}
-                  </p>
-                </div>
-              ))}
-              <div className="border-t border-gray-100 pt-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-green-600">
-                  Gross Pay
-                </p>
-                <p className="text-sm font-bold text-green-600">
-                  ₦250,000.00
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Deductions */}
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-            <div className="px-5 py-3 border-b border-gray-100">
-              <p className="text-[10px] tracking-[0.1em] uppercase text-red-400 font-semibold">
-                Deductions
-              </p>
-            </div>
-            <div className="px-5 py-3 space-y-3">
-              {deductions.map((item, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600">{item.label}</p>
-                  <p className="text-sm font-medium text-red-500">
-                    {item.amount}
-                  </p>
-                </div>
-              ))}
-              <div className="border-t border-gray-100 pt-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-navy-900">
-                  Net Salary
-                </p>
-                <p className="text-sm font-bold text-navy-900">
-                  ₦199,500.00
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Salary data can be added when salary tables are implemented */}
 
       {/* ─── Recent Leaves ─── */}
       <div>
@@ -317,32 +258,21 @@ export default function StaffProfilePage() {
                 </tr>
               </thead>
               <tbody>
-                {recentLeaves.map((leave, i) => (
-                  <tr
-                    key={i}
-                    className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
-                  >
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-navy-900">{leave.type}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <p className="text-sm text-gray-600">
-                        {leave.startDate}
-                      </p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <p className="text-sm text-gray-600">{leave.endDate}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <p className="text-sm text-gray-600">{leave.days}</p>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="inline-flex px-2.5 py-1 rounded text-[9px] font-bold tracking-wider bg-green-600 text-white">
-                        {leave.status}
-                      </span>
-                    </td>
+                {leaves.length === 0 ? (
+                  <tr><td colSpan={5} className="text-center py-8 text-gray-400 text-sm">No leave records</td></tr>
+                ) : leaves.slice(0, 5).map((leave: any, i: number) => {
+                  const days = leave.start_date && leave.end_date ? Math.ceil((new Date(leave.end_date).getTime() - new Date(leave.start_date).getTime()) / (1000*60*60*24)) + 1 : 0;
+                  const statusColors: Record<string,string> = { approved: "bg-green-600 text-white", pending: "bg-amber-100 text-amber-700", rejected: "bg-red-100 text-red-600" };
+                  return (
+                  <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                    <td className="px-6 py-4"><p className="text-sm text-navy-900">{leave.leave_type ? leave.leave_type.charAt(0).toUpperCase() + leave.leave_type.slice(1) : "—"} Leave</p></td>
+                    <td className="px-4 py-4"><p className="text-sm text-gray-600">{leave.start_date ? new Date(leave.start_date).toLocaleDateString("en-NG", {year:"numeric",month:"short",day:"numeric"}) : "—"}</p></td>
+                    <td className="px-4 py-4"><p className="text-sm text-gray-600">{leave.end_date ? new Date(leave.end_date).toLocaleDateString("en-NG", {year:"numeric",month:"short",day:"numeric"}) : "—"}</p></td>
+                    <td className="px-4 py-4"><p className="text-sm text-gray-600">{days} {days === 1 ? "Day" : "Days"}</p></td>
+                    <td className="px-4 py-4"><span className={`inline-flex px-2.5 py-1 rounded text-[9px] font-bold tracking-wider ${statusColors[leave.status] || "bg-gray-100 text-gray-600"}`}>{(leave.status || "").toUpperCase()}</span></td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

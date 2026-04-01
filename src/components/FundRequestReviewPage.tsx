@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   Info,
   ClipboardList,
@@ -7,11 +8,45 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Loader2,
 } from "lucide-react";
+import { fetchFundRequest, reviewFundRequest } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function FundRequestReviewPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [request, setRequest] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const [decision, setDecision] = useState<"approve" | "reject">("approve");
   const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      setLoading(true);
+      try { setRequest(await fetchFundRequest(id)); } catch {}
+      setLoading(false);
+    })();
+  }, [id]);
+
+  const handleDecision = async () => {
+    if (!request) return;
+    setError("");
+    setSubmitting(true);
+    try {
+      const status = decision === "approve" ? "approved" : "rejected";
+      await reviewFundRequest(request.id, profile?.id ?? "", status, notes);
+      navigate("/finance/fund-requests");
+    } catch (e: any) { setError(e.message || "Failed to process decision"); }
+    setSubmitting(false);
+  };
+
+  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-gray-400" /></div>;
+  if (!request) return <div className="py-20 text-center text-gray-400">Fund request not found</div>;
 
   return (
     <div className="space-y-6">
@@ -22,7 +57,7 @@ export default function FundRequestReviewPage() {
             Fund Request Review
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Request ID: <span className="text-blue-600">FR-00245</span>
+            Request ID: <span className="text-blue-600">#{request.id?.slice(0,8)}</span>
           </p>
         </div>
         <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
@@ -50,7 +85,7 @@ export default function FundRequestReviewPage() {
                   Branch
                 </p>
                 <p className="text-sm font-semibold text-navy-900">
-                  Lagos Mainland
+                  {request.branch?.name ?? '\u2014'}
                 </p>
               </div>
 
@@ -59,7 +94,7 @@ export default function FundRequestReviewPage() {
                 <p className="text-[10px] tracking-[0.1em] uppercase text-green-600 font-semibold mb-1">
                   Amount Requested
                 </p>
-                <p className="text-2xl font-bold text-navy-900">₦500,000</p>
+                <p className="text-2xl font-bold text-navy-900">₦{Number(request.amount).toLocaleString()}</p>
               </div>
 
               {/* Purpose */}
@@ -68,7 +103,7 @@ export default function FundRequestReviewPage() {
                   Purpose
                 </p>
                 <p className="text-sm font-semibold text-navy-900">
-                  Office Renovation
+                  {request.purpose}
                 </p>
               </div>
 
@@ -78,7 +113,7 @@ export default function FundRequestReviewPage() {
                   Date Submitted
                 </p>
                 <p className="text-sm font-semibold text-navy-900">
-                  October 24, 2023
+                  {new Date(request.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
                 </p>
               </div>
             </div>
@@ -184,13 +219,27 @@ export default function FundRequestReviewPage() {
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent mb-5"
             />
 
+            {error && (
+              <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl mb-3">
+                <p className="text-sm text-red-600">{error}</p>
+              </div>
+            )}
+
             {/* Action Buttons */}
-            <button className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors mb-3">
-              <CheckCircle2 className="w-4 h-4" />
+            <button
+              onClick={() => { setDecision('approve'); handleDecision(); }}
+              disabled={submitting}
+              className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 mb-3"
+            >
+              {submitting && decision === 'approve' ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
               Approve Request
             </button>
-            <button className="w-full flex items-center justify-center gap-2 py-3 border-2 border-red-200 text-red-500 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors">
-              <XCircle className="w-4 h-4" />
+            <button
+              onClick={() => { setDecision('reject'); handleDecision(); }}
+              disabled={submitting}
+              className="w-full flex items-center justify-center gap-2 py-3 border-2 border-red-200 text-red-500 rounded-xl text-sm font-semibold hover:bg-red-50 transition-colors disabled:opacity-50"
+            >
+              {submitting && decision === 'reject' ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
               Reject Request
             </button>
           </div>

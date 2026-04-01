@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Plus,
@@ -5,72 +6,63 @@ import {
   XCircle,
   Eye,
   Filter,
+  Loader2,
 } from "lucide-react";
+import { fetchLeaveRequests, reviewLeaveRequest } from "../lib/db";
 
-/* ─── Leave Request Data ─── */
-interface LeaveRequest {
-  id: string;
-  staffName: string;
-  initials: string;
-  initialsBg: string;
-  leaveType: string;
-  leaveTypeBg: string;
-  startDate: string;
-  endDate: string;
-  status: "Pending" | "Approved" | "Rejected";
-}
+const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500","bg-pink-600","bg-teal-600"];
 
-const leaveRequests: LeaveRequest[] = [
-  {
-    id: "LR-2023-0101",
-    staffName: "Alice Johnson",
-    initials: "AJ",
-    initialsBg: "bg-blue-600",
-    leaveType: "Annual",
-    leaveTypeBg: "bg-blue-600 text-white",
-    startDate: "Oct 1, 2023",
-    endDate: "Oct 5, 2023",
-    status: "Pending",
-  },
-  {
-    id: "LR-2023-0102",
-    staffName: "Bob Smith",
-    initials: "BS",
-    initialsBg: "bg-green-600",
-    leaveType: "Sick",
-    leaveTypeBg: "bg-green-100 text-green-700",
-    startDate: "Oct 3, 2023",
-    endDate: "Oct 3, 2023",
-    status: "Approved",
-  },
-  {
-    id: "LR-2023-0103",
-    staffName: "Charlie Brown",
-    initials: "CB",
-    initialsBg: "bg-amber-500",
-    leaveType: "Emergency",
-    leaveTypeBg: "bg-red-500 text-white",
-    startDate: "Oct 10, 2023",
-    endDate: "Oct 12, 2023",
-    status: "Rejected",
-  },
-];
-
-const statusDisplay = (status: LeaveRequest["status"]) => {
+const statusDisplay = (status: string) => {
   const styles: Record<string, string> = {
-    Pending: "text-amber-500",
-    Approved: "text-green-600",
-    Rejected: "text-red-500",
+    pending: "text-amber-500",
+    approved: "text-green-600",
+    rejected: "text-red-500",
   };
+  const label = status.charAt(0).toUpperCase() + status.slice(1);
   return (
     <div className="flex items-center gap-1.5">
-      <span className={`text-lg leading-none ${styles[status]}`}>•</span>
-      <span className={`text-sm font-medium ${styles[status]}`}>{status}</span>
+      <span className={`text-lg leading-none ${styles[status] || "text-gray-500"}`}>•</span>
+      <span className={`text-sm font-medium ${styles[status] || "text-gray-500"}`}>{label}</span>
     </div>
   );
 };
 
+const leaveTypeBadge = (type: string) => {
+  const styles: Record<string, string> = {
+    annual: "bg-blue-600 text-white",
+    sick: "bg-green-100 text-green-700",
+    casual: "bg-purple-100 text-purple-700",
+    emergency: "bg-red-500 text-white",
+    maternity: "bg-pink-100 text-pink-700",
+  };
+  return styles[type] || "bg-gray-100 text-gray-700";
+};
+
 export default function LeaveRequestsPage() {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const filters: any = {};
+      if (statusFilter) filters.status = statusFilter;
+      const data = await fetchLeaveRequests(filters);
+      setRequests(typeFilter ? data.filter((r: any) => r.leave_type === typeFilter) : data);
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { loadData(); }, [statusFilter, typeFilter]);
+
+  const handleAction = async (id: string, status: "approved" | "rejected") => {
+    try {
+      await reviewLeaveRequest(id, status, "");
+      loadData();
+    } catch {}
+  };
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
@@ -95,12 +87,13 @@ export default function LeaveRequestsPage() {
             <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1.5">
               Leave Type
             </label>
-            <select className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[130px]">
-              <option>All Types</option>
-              <option>Annual</option>
-              <option>Sick</option>
-              <option>Emergency</option>
-              <option>Maternity</option>
+            <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[130px]">
+              <option value="">All Types</option>
+              <option value="annual">Annual</option>
+              <option value="sick">Sick</option>
+              <option value="casual">Casual</option>
+              <option value="emergency">Emergency</option>
+              <option value="maternity">Maternity</option>
             </select>
           </div>
 
@@ -109,11 +102,11 @@ export default function LeaveRequestsPage() {
             <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1.5">
               Status
             </label>
-            <select className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[120px]">
-              <option>All Status</option>
-              <option>Pending</option>
-              <option>Approved</option>
-              <option>Rejected</option>
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[120px]">
+              <option value="">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
             </select>
           </div>
 
@@ -187,72 +180,26 @@ export default function LeaveRequestsPage() {
               </tr>
             </thead>
             <tbody>
-              {leaveRequests.map((req, i) => (
-                <tr
-                  key={i}
-                  className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
-                >
-                  {/* Request ID */}
-                  <td className="px-6 py-4">
-                    <p className="text-sm text-gray-600">{req.id}</p>
-                  </td>
-
-                  {/* Staff Name */}
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${req.initialsBg}`}
-                      >
-                        {req.initials}
-                      </div>
-                      <p className="text-sm font-semibold text-navy-900">
-                        {req.staffName}
-                      </p>
-                    </div>
-                  </td>
-
-                  {/* Leave Type */}
-                  <td className="px-4 py-4">
-                    <span
-                      className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${req.leaveTypeBg}`}
-                    >
-                      {req.leaveType}
-                    </span>
-                  </td>
-
-                  {/* Start Date */}
-                  <td className="px-4 py-4">
-                    <p className="text-sm text-gray-600">{req.startDate}</p>
-                  </td>
-
-                  {/* End Date */}
-                  <td className="px-4 py-4">
-                    <p className="text-sm text-gray-600">{req.endDate}</p>
-                  </td>
-
-                  {/* Status */}
+              {loading ? (
+                <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+              ) : requests.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400 text-sm">No leave requests found</td></tr>
+              ) : requests.map((req: any, i: number) => {
+                const staffName = req.staff ? `${req.staff.first_name ?? ""} ${req.staff.last_name ?? ""}`.trim() : "Unknown";
+                const initials = staffName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
+                const bgColor = avatarColors[i % avatarColors.length];
+                return (
+                <tr key={req.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+                  <td className="px-6 py-4"><p className="text-sm text-gray-600">{req.id.slice(0,8)}</p></td>
+                  <td className="px-4 py-4"><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${bgColor}`}>{initials}</div><p className="text-sm font-semibold text-navy-900">{staffName}</p></div></td>
+                  <td className="px-4 py-4"><span className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${leaveTypeBadge(req.leave_type)}`}>{(req.leave_type || "").charAt(0).toUpperCase() + (req.leave_type || "").slice(1)}</span></td>
+                  <td className="px-4 py-4"><p className="text-sm text-gray-600">{req.start_date ? new Date(req.start_date).toLocaleDateString("en-NG",{year:"numeric",month:"short",day:"numeric"}) : "—"}</p></td>
+                  <td className="px-4 py-4"><p className="text-sm text-gray-600">{req.end_date ? new Date(req.end_date).toLocaleDateString("en-NG",{year:"numeric",month:"short",day:"numeric"}) : "—"}</p></td>
                   <td className="px-4 py-4">{statusDisplay(req.status)}</td>
-
-                  {/* Actions */}
-                  <td className="px-4 py-4">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {req.status === "Pending" && (
-                        <>
-                          <button className="p-1.5 text-green-600 hover:text-green-700 transition-colors">
-                            <CheckCircle2 className="w-5 h-5" />
-                          </button>
-                          <button className="p-1.5 text-red-500 hover:text-red-600 transition-colors">
-                            <XCircle className="w-5 h-5" />
-                          </button>
-                        </>
-                      )}
-                      <button className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors">
-                        <Eye className="w-5 h-5" />
-                      </button>
-                    </div>
-                  </td>
+                  <td className="px-4 py-4"><div className="flex items-center justify-end gap-1.5">{req.status === "pending" && (<><button onClick={() => handleAction(req.id, "approved")} className="p-1.5 text-green-600 hover:text-green-700 transition-colors"><CheckCircle2 className="w-5 h-5" /></button><button onClick={() => handleAction(req.id, "rejected")} className="p-1.5 text-red-500 hover:text-red-600 transition-colors"><XCircle className="w-5 h-5" /></button></>)}<button className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Eye className="w-5 h-5" /></button></div></td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -261,8 +208,8 @@ export default function LeaveRequestsPage() {
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
           <p className="text-sm text-gray-500">
             Showing{" "}
-            <span className="font-semibold text-navy-900">1 to 3</span> of{" "}
-            <span className="font-semibold text-navy-900">42</span> entries
+            <span className="font-semibold text-navy-900">1 to {requests.length}</span> of{" "}
+            <span className="font-semibold text-navy-900">{requests.length}</span> entries
           </p>
           <div className="flex items-center gap-1">
             <button className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm text-gray-500 hover:bg-gray-50 transition-colors">

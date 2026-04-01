@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Save,
   Building2,
@@ -10,23 +10,34 @@ import {
   Palette,
   Clock,
   DollarSign,
+  Loader2,
+  X,
 } from "lucide-react";
+import { fetchOrgSettings, updateOrgSetting, uploadFile } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function GeneralSettingsPage() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [logoUploading, setLogoUploading] = useState(false);
   const [form, setForm] = useState({
-    orgName: "FOLAT Multipurpose Investment",
+    orgName: "",
     orgType: "Cooperative Society",
-    regNumber: "RC-2023-0042185",
-    dateEstablished: "2018-03-15",
-    email: "info@folatcooperative.org",
-    phone: "+234 812 345 6789",
-    altPhone: "+234 901 234 5678",
-    website: "www.folatcooperative.org",
-    address: "12 Cooperative Avenue, Victoria Island",
-    city: "Lagos",
-    state: "Lagos State",
+    regNumber: "",
+    dateEstablished: "",
+    email: "",
+    phone: "",
+    altPhone: "",
+    website: "",
+    address: "",
+    city: "",
+    state: "",
     country: "Nigeria",
-    zipCode: "101241",
+    zipCode: "",
     currency: "NGN",
     timezone: "Africa/Lagos (GMT+1)",
     dateFormat: "DD/MM/YYYY",
@@ -35,6 +46,48 @@ export default function GeneralSettingsPage() {
     primaryColor: "#109050",
     secondaryColor: "#1a2744",
   });
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  async function loadSettings() {
+    try {
+      setLoading(true);
+      const settings = await fetchOrgSettings();
+      setForm((prev) => ({
+        ...prev,
+        ...Object.fromEntries(
+          Object.entries(settings).filter(([, v]) => typeof v === "string")
+        ),
+      }));
+      if (settings.logoUrl) setLogoUrl(settings.logoUrl);
+    } catch (err) {
+      console.error("Failed to load settings:", err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSave() {
+    if (!user) return;
+    try {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+      for (const [key, value] of Object.entries(form)) {
+        await updateOrgSetting(key, value, user.id);
+      }
+      if (logoUrl) {
+        await updateOrgSetting("logoUrl", logoUrl, user.id);
+      }
+      setSuccess("Settings saved successfully.");
+    } catch (err: any) {
+      setError(err.message || "Failed to save settings");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const update = (field: string, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -49,11 +102,19 @@ export default function GeneralSettingsPage() {
             Manage your organization profile, preferences, and system configuration.
           </p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
-          <Save className="w-4 h-4" />
-          Save Changes
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? "Saving..." : "Save Changes"}
         </button>
       </div>
+
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}
+      {success && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm">{success}</div>}
+      {loading && <div className="text-center py-8"><Loader2 className="w-6 h-6 animate-spin text-green-600 mx-auto" /></div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* ─── Organization Profile (2 cols) ─── */}
@@ -99,12 +160,38 @@ export default function GeneralSettingsPage() {
               <div>
                 <label className="block text-sm font-semibold text-navy-900 mb-2">Organization Logo</label>
                 <div className="flex items-center gap-4">
-                  <div className="w-16 h-16 rounded-xl bg-navy-900 flex items-center justify-center text-white font-bold text-xl">F</div>
-                  <div className="border-2 border-dashed border-gray-200 rounded-xl px-6 py-4 flex-1 text-center hover:border-green-300 transition-colors cursor-pointer">
-                    <Upload className="w-5 h-5 text-gray-400 mx-auto mb-1" />
-                    <p className="text-xs text-gray-500">Click to upload or drag & drop</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">PNG, JPG (Max 2MB)</p>
-                  </div>
+                  {logoUrl ? (
+                    <div className="relative">
+                      <img src={logoUrl} alt="Logo" className="w-16 h-16 rounded-xl object-cover border border-gray-200" />
+                      <button onClick={() => setLogoUrl("")} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-white hover:bg-red-600"><X className="w-3 h-3" /></button>
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl bg-navy-900 flex items-center justify-center text-white font-bold text-xl">{form.orgName?.[0]?.toUpperCase() || "F"}</div>
+                  )}
+                  <label className="border-2 border-dashed border-gray-200 rounded-xl px-6 py-4 flex-1 text-center hover:border-green-300 transition-colors cursor-pointer">
+                    <input type="file" className="hidden" accept="image/png,image/jpeg,image/webp" onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 2 * 1024 * 1024) { setError("Logo must be under 2 MB."); return; }
+                      setLogoUploading(true);
+                      try {
+                        const ext = file.name.split(".").pop() || "png";
+                        const url = await uploadFile("documents", `logos/org-logo.${ext}`, file);
+                        setLogoUrl(url);
+                        setSuccess("Logo uploaded. Click Save Changes to apply.");
+                      } catch (err: any) { setError(err.message || "Upload failed"); }
+                      setLogoUploading(false);
+                    }} />
+                    {logoUploading ? (
+                      <Loader2 className="w-5 h-5 text-green-500 mx-auto animate-spin" />
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5 text-gray-400 mx-auto mb-1" />
+                        <p className="text-xs text-gray-500">Click to upload or drag & drop</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5">PNG, JPG (Max 2MB)</p>
+                      </>
+                    )}
+                  </label>
                 </div>
               </div>
             </div>
@@ -238,10 +325,10 @@ export default function GeneralSettingsPage() {
               <div>
                 <label className="block text-sm font-semibold text-navy-900 mb-2">Currency</label>
                 <select value={form.currency} onChange={(e) => update("currency", e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none">
-                  <option>NGN</option>
-                  <option>USD</option>
-                  <option>GBP</option>
-                  <option>EUR</option>
+                  <option value="NGN">NGN (₦)</option>
+                  <option value="USD">USD ($)</option>
+                  <option value="GBP">GBP (£)</option>
+                  <option value="EUR">EUR (€)</option>
                 </select>
               </div>
               <div>

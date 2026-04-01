@@ -17,8 +17,10 @@ import {
   ChevronRight,
   X,
   LogOut,
+  UserCircle,
 } from "lucide-react";
-import { useAuth, type Permission } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
+import type { Permission } from "../auth/types";
 
 type NavChild = { label: string; path: string; permission?: Permission };
 
@@ -317,10 +319,17 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
         {/* User badge */}
         {user && (
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-sm font-semibold text-navy-900 truncate">{user.name}</p>
-            <p className="text-[10px] text-gray-400 uppercase tracking-wide">{user.roleLabel}</p>
-          </div>
+          <NavLink
+            to="/profile"
+            onClick={onClose}
+            className="block px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <UserCircle className="w-4 h-4 text-gray-400 shrink-0" />
+              <p className="text-sm font-semibold text-navy-900 truncate">{user.name}</p>
+            </div>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide ml-6">View Profile</p>
+          </NavLink>
         )}
 
         {/* Nav */}

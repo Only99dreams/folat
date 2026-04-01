@@ -1,90 +1,50 @@
-import { useNavigate } from "react-router-dom";
-import { Info, Printer, FileDown, CreditCard } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Info, Printer, FileDown, CreditCard, Loader2 } from "lucide-react";
+import { fetchLoanApplication, fetchLoanSchedule } from "../lib/db";
 
-/* ─── Installment Data ─── */
-interface Installment {
-  label: string;
-  dueDate: string;
-  dueDateColor: string;
-  amount: string;
-  status: "PAID" | "OVERDUE" | "PENDING";
-  paymentDate: string;
-  highlight?: boolean;
-}
-
-const installments: Installment[] = [
-  {
-    label: "1st Installment",
-    dueDate: "Nov 15, 2023",
-    dueDateColor: "text-navy-900",
-    amount: "₦ 45,000",
-    status: "PAID",
-    paymentDate: "Nov 14, 2023",
-  },
-  {
-    label: "2nd Installment",
-    dueDate: "Dec 15, 2023",
-    dueDateColor: "text-navy-900",
-    amount: "₦ 45,000",
-    status: "PAID",
-    paymentDate: "Dec 15, 2023",
-  },
-  {
-    label: "3rd Installment",
-    dueDate: "Jan 15, 2024",
-    dueDateColor: "text-navy-900",
-    amount: "₦ 45,000",
-    status: "PAID",
-    paymentDate: "Jan 12, 2024",
-  },
-  {
-    label: "4th Installment",
-    dueDate: "Feb 15, 2024",
-    dueDateColor: "text-red-500",
-    amount: "₦ 45,000",
-    status: "OVERDUE",
-    paymentDate: "—",
-    highlight: true,
-  },
-  {
-    label: "5th Installment",
-    dueDate: "Mar 15, 2024",
-    dueDateColor: "text-navy-900",
-    amount: "₦ 45,000",
-    status: "PENDING",
-    paymentDate: "—",
-  },
-  {
-    label: "6th Installment",
-    dueDate: "Apr 15, 2024",
-    dueDateColor: "text-navy-900",
-    amount: "₦ 45,000",
-    status: "PENDING",
-    paymentDate: "—",
-  },
-];
-
-const statusBadge = (status: Installment["status"]) => {
+const statusBadge = (status: string) => {
   const styles: Record<string, string> = {
-    PAID: "bg-green-100 text-green-600",
-    OVERDUE: "bg-red-100 text-red-600",
-    PENDING: "bg-amber-100 text-amber-600",
+    paid: "bg-green-100 text-green-600",
+    overdue: "bg-red-100 text-red-600",
+    pending: "bg-amber-100 text-amber-600",
+    partial: "bg-blue-100 text-blue-600",
   };
   return (
-    <span
-      className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${styles[status]}`}
-    >
-      {status}
+    <span className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${styles[status] ?? styles.pending}`}>
+      {status.toUpperCase()}
     </span>
   );
 };
 
 export default function LoanRepaymentSchedulePage() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
+  const [loan, setLoan] = useState<any>(null);
+  const [installments, setInstallments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const totalRepaid = 225000;
-  const totalLoan = 500000;
-  const completionPercent = Math.round((totalRepaid / totalLoan) * 100);
+  useEffect(() => {
+    if (!id) return;
+    Promise.all([
+      fetchLoanApplication(id),
+      fetchLoanSchedule(id),
+    ]).then(([loanData, scheduleData]) => {
+      setLoan(loanData);
+      setInstallments(scheduleData);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [id]);
+
+  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-navy-900" /></div>;
+  if (!loan) return <div className="text-center py-20 text-gray-500">Loan not found.</div>;
+
+  const totalLoan = Number(loan.total_repayable ?? loan.amount_requested ?? 0);
+  const totalRepaid = installments.reduce((sum, s) => sum + Number(s.amount_paid ?? 0), 0);
+  const completionPercent = totalLoan > 0 ? Math.round((totalRepaid / totalLoan) * 100) : 0;
+  const principal = Number(loan.amount_approved ?? loan.amount_requested ?? 0);
+  const interestRate = Number(loan.interest_rate ?? 0);
+  const months = Number(loan.duration_months ?? 12);
+  const monthlyInstallment = Number(loan.monthly_repayment ?? 0);
 
   return (
     <div className="space-y-6">
@@ -97,7 +57,7 @@ export default function LoanRepaymentSchedulePage() {
           Loans
         </button>
         <span>/</span>
-        <span className="text-navy-900 font-medium">LN-000245</span>
+        <span className="text-navy-900 font-medium">{loan.loan_id}</span>
       </div>
 
       {/* ─── Header ─── */}
@@ -107,7 +67,7 @@ export default function LoanRepaymentSchedulePage() {
             Loan Repayment Schedule
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Schedule ID: LN-000245 • Issued on Oct 12, 2023
+            Schedule ID: {loan.loan_id} • Issued on {new Date(loan.created_at).toLocaleDateString()}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -141,7 +101,7 @@ export default function LoanRepaymentSchedulePage() {
               <p className="text-[10px] tracking-[0.1em] uppercase text-red-500 font-bold mb-1">
                 Principal Amount
               </p>
-              <p className="text-xl font-bold text-navy-900">₦500,000</p>
+              <p className="text-xl font-bold text-navy-900">₦{principal.toLocaleString()}</p>
             </div>
 
             {/* Interest Rate */}
@@ -150,7 +110,7 @@ export default function LoanRepaymentSchedulePage() {
                 Interest Rate
               </p>
               <div className="flex items-baseline gap-1">
-                <p className="text-xl font-bold text-navy-900">10%</p>
+                <p className="text-xl font-bold text-navy-900">{interestRate}%</p>
                 <span className="text-sm text-gray-400">p.a</span>
               </div>
             </div>
@@ -160,7 +120,7 @@ export default function LoanRepaymentSchedulePage() {
               <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
                 Loan Duration
               </p>
-              <p className="text-xl font-bold text-navy-900">12 Months</p>
+              <p className="text-xl font-bold text-navy-900">{months} Months</p>
             </div>
 
             {/* Monthly Installment */}
@@ -169,7 +129,7 @@ export default function LoanRepaymentSchedulePage() {
                 <p className="text-[10px] tracking-[0.1em] uppercase text-navy-200 font-semibold mb-1">
                   Monthly Installment
                 </p>
-                <p className="text-xl font-bold text-white">₦45,000</p>
+                <p className="text-xl font-bold text-white">₦{monthlyInstallment.toLocaleString()}</p>
               </div>
             </div>
           </div>
@@ -242,47 +202,43 @@ export default function LoanRepaymentSchedulePage() {
               </tr>
             </thead>
             <tbody>
-              {installments.map((inst, i) => (
+              {installments.length === 0 ? (
+                <tr><td colSpan={5} className="text-center py-12 text-gray-400">No schedule entries.</td></tr>
+              ) : installments.map((inst) => {
+                const isOverdue = inst.status === "overdue";
+                return (
                 <tr
-                  key={i}
+                  key={inst.id}
                   className={`border-b border-gray-50 transition-colors ${
-                    inst.highlight
-                      ? "bg-amber-50/50"
-                      : "hover:bg-gray-50/50"
+                    isOverdue ? "bg-amber-50/50" : "hover:bg-gray-50/50"
                   }`}
                 >
-                  {/* Installment */}
                   <td className="px-6 py-5">
                     <p className="text-sm font-semibold text-navy-900">
-                      {inst.label}
+                      Installment #{inst.installment_number}
                     </p>
                   </td>
-
-                  {/* Due Date */}
                   <td className="px-4 py-5">
-                    <p className={`text-sm font-medium ${inst.dueDateColor}`}>
-                      {inst.dueDate}
+                    <p className={`text-sm font-medium ${isOverdue ? "text-red-500" : "text-navy-900"}`}>
+                      {new Date(inst.due_date).toLocaleDateString()}
                     </p>
                   </td>
-
-                  {/* Amount */}
                   <td className="px-4 py-5 text-center">
                     <p className="text-sm font-medium text-navy-900">
-                      x {inst.amount.replace("₦ ", "")}
+                      ₦{Number(inst.total_due).toLocaleString()}
                     </p>
                   </td>
-
-                  {/* Payment Status */}
                   <td className="px-4 py-5 text-center">
                     {statusBadge(inst.status)}
                   </td>
-
-                  {/* Payment Date */}
                   <td className="px-6 py-5 text-right">
-                    <p className="text-sm text-gray-600">{inst.paymentDate}</p>
+                    <p className="text-sm text-gray-600">
+                      {inst.paid_date ? new Date(inst.paid_date).toLocaleDateString() : "—"}
+                    </p>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -290,7 +246,7 @@ export default function LoanRepaymentSchedulePage() {
         {/* View All */}
         <div className="flex items-center justify-center py-4 border-t border-gray-100">
           <button className="text-sm font-semibold text-navy-900 underline underline-offset-2 hover:text-navy-700 transition-colors">
-            View All 12 Installments
+            Total: {installments.length} Installments
           </button>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Search,
@@ -12,88 +12,42 @@ import {
   RefreshCw,
   Ban,
   SlidersHorizontal,
+  Loader2,
 } from "lucide-react";
-
-/* ─── Sample Data ─── */
-interface Group {
-  name: string;
-  code: string;
-  id: string;
-  branch: string;
-  leaderName: string;
-  subLeaderName: string;
-  members: number;
-  savings: string;
-  loans: string;
-  status: "ACTIVE" | "INACTIVE";
-  created: string;
-}
-
-const groups: Group[] = [
-  {
-    name: "Unity Savings Group",
-    code: "USGP",
-    id: "2024 - 001",
-    branch: "Main HQ",
-    leaderName: "Michael Chen",
-    subLeaderName: "Sarah Johnson",
-    members: 42,
-    savings: "$124,500.00",
-    loans: "$45,200.00",
-    status: "ACTIVE",
-    created: "Jan 12, 2024",
-  },
-  {
-    name: "Blue Horizon Trust",
-    code: "CBHT",
-    id: "2024 - 006",
-    branch: "East Region",
-    leaderName: "Robert Wilson",
-    subLeaderName: "Maria Garcia",
-    members: 18,
-    savings: "$56,000.00",
-    loans: "$12,000.00",
-    status: "ACTIVE",
-    created: "Feb 05, 2024",
-  },
-  {
-    name: "Legacy Farmers",
-    code: "AGRF",
-    id: "2023 - 114",
-    branch: "West Region",
-    leaderName: "David Osei",
-    subLeaderName: "Amara Okafor",
-    members: 55,
-    savings: "$0.00",
-    loans: "$0.00",
-    status: "INACTIVE",
-    created: "Nov 20, 2023",
-  },
-  {
-    name: "Sunshine Women",
-    code: "CSWC",
-    id: "2024 - 015",
-    branch: "Main HQ",
-    leaderName: "Alice Thompson",
-    subLeaderName: "Grace Kim",
-    members: 12,
-    savings: "$32,100.00",
-    loans: "$8,500.00",
-    status: "ACTIVE",
-    created: "Mar 01, 2024",
-  },
-];
+import { fetchGroups, fetchBranches } from "../lib/db";
 
 export default function GroupsPage() {
-  const [branchFilter, setBranchFilter] = useState("All Branches");
-  const [statusFilter, setStatusFilter] = useState("Active");
-  const [leaderFilter, setLeaderFilter] = useState("Any Leader");
-  const [sizeFilter, setSizeFilter] = useState("All Sizes");
+  const [branchFilter, setBranchFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [leaderFilter, setLeaderFilter] = useState("");
+  const [sizeFilter, setSizeFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [totalGroups, setTotalGroups] = useState(0);
 
-  const totalGroups = 24;
-  const perPage = 4;
-  const totalPages = 3;
+  const perPage = 20;
+  const totalPages = Math.max(1, Math.ceil(totalGroups / perPage));
+
+  useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const { data, count } = await fetchGroups({
+          branch_id: branchFilter || undefined,
+          status: statusFilter || undefined,
+          page: currentPage,
+          pageSize: perPage,
+        });
+        setGroups(data);
+        setTotalGroups(count);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, [currentPage, branchFilter, statusFilter]);
 
   return (
     <div className="space-y-6">
@@ -128,7 +82,7 @@ export default function GroupsPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase font-semibold text-green-200">
             Total Groups
           </p>
-          <p className="text-3xl font-bold mt-1">24</p>
+          <p className="text-3xl font-bold mt-1">{totalGroups}</p>
         </div>
 
         {/* Total Savings */}
@@ -136,7 +90,7 @@ export default function GroupsPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase font-semibold text-green-200">
             Total Savings
           </p>
-          <p className="text-3xl font-bold mt-1">₦1.2M</p>
+          <p className="text-3xl font-bold mt-1">—</p>
         </div>
 
         {/* Active Loans */}
@@ -144,7 +98,7 @@ export default function GroupsPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase font-semibold text-orange-200">
             Active Loans
           </p>
-          <p className="text-3xl font-bold mt-1">₦452K</p>
+          <p className="text-3xl font-bold mt-1">—</p>
         </div>
 
         {/* Total Members */}
@@ -152,7 +106,7 @@ export default function GroupsPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase font-semibold text-navy-300">
             Total Members
           </p>
-          <p className="text-3xl font-bold mt-1">1,248</p>
+          <p className="text-3xl font-bold mt-1">{groups.reduce((s, g) => s + (g.member_count ?? 0), 0).toLocaleString()}</p>
         </div>
       </div>
 
@@ -170,10 +124,10 @@ export default function GroupsPage() {
                 onChange={(e) => setBranchFilter(e.target.value)}
                 className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
               >
-                <option>All Branches</option>
-                <option>Main HQ</option>
-                <option>East Region</option>
-                <option>West Region</option>
+                <option value="">All Branches</option>
+                {branches.map((b: any) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
@@ -190,9 +144,9 @@ export default function GroupsPage() {
                 onChange={(e) => setStatusFilter(e.target.value)}
                 className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
               >
-                <option>Active</option>
-                <option>Inactive</option>
-                <option>All</option>
+                <option value="">All</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
@@ -209,11 +163,7 @@ export default function GroupsPage() {
                 onChange={(e) => setLeaderFilter(e.target.value)}
                 className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
               >
-                <option>Any Leader</option>
-                <option>Michael Chen</option>
-                <option>Robert Wilson</option>
-                <option>David Osei</option>
-                <option>Alice Thompson</option>
+                <option value="">Any Leader</option>
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
@@ -282,9 +232,13 @@ export default function GroupsPage() {
               </tr>
             </thead>
             <tbody>
-              {groups.map((g, i) => (
+              {loading ? (
+                <tr><td colSpan={8} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" /></td></tr>
+              ) : groups.length === 0 ? (
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400 text-sm">No groups found</td></tr>
+              ) : groups.map((g: any) => (
                 <tr
-                  key={i}
+                  key={g.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                 >
                   {/* Group Name & ID */}
@@ -294,53 +248,38 @@ export default function GroupsPage() {
                     </p>
                     <p className="text-xs text-gray-400 mt-0.5">
                       <span className="font-medium text-gray-500">
-                        {g.code}
+                        {g.code ?? "—"}
                       </span>
                     </p>
-                    <p className="text-[11px] text-gray-400">{g.id}</p>
                   </td>
 
                   {/* Branch */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-navy-900">{g.branch}</p>
+                    <p className="text-sm text-navy-900">{g.branch?.name ?? "—"}</p>
                   </td>
 
                   {/* Leaders */}
                   <td className="px-4 py-5">
                     <p className="text-sm text-navy-900">
-                      <span className="text-gray-400">L:</span> {g.leaderName}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      <span>S:</span> {g.subLeaderName}
+                      <span className="text-gray-400">L:</span> {g.leader?.full_name ?? "—"}
                     </p>
                   </td>
 
                   {/* Members */}
                   <td className="px-4 py-5 text-center">
                     <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-navy-50 text-sm font-bold text-navy-900">
-                      {g.members}
+                      {g.member_count ?? 0}
                     </span>
                   </td>
 
                   {/* Financials */}
                   <td className="px-4 py-5">
-                    <p className="text-xs">
-                      <span className="text-green-600 font-medium">S:</span>{" "}
-                      <span className="text-green-600 font-semibold">
-                        {g.savings}
-                      </span>
-                    </p>
-                    <p className="text-xs mt-0.5">
-                      <span className="text-orange-500 font-medium">L:</span>{" "}
-                      <span className="text-orange-500 font-semibold">
-                        {g.loans}
-                      </span>
-                    </p>
+                    <p className="text-xs text-gray-400">—</p>
                   </td>
 
                   {/* Status */}
                   <td className="px-4 py-5 text-center">
-                    {g.status === "ACTIVE" ? (
+                    {g.status === "active" ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-green-50 text-green-700 border border-green-200">
                         <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                         ACTIVE
@@ -355,14 +294,14 @@ export default function GroupsPage() {
 
                   {/* Created */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-gray-600">{g.created}</p>
+                    <p className="text-sm text-gray-600">{new Date(g.created_at).toLocaleDateString()}</p>
                   </td>
 
                   {/* Actions */}
                   <td className="px-4 py-5">
                     <div className="flex items-center justify-center gap-1">
                       <Link
-                        to={`/groups/${g.id.replace(/\s/g, "")}`}
+                        to={`/groups/${g.id}`}
                         title="View"
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
                       >
@@ -374,7 +313,7 @@ export default function GroupsPage() {
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
-                      {g.status === "ACTIVE" ? (
+                      {g.status === "active" ? (
                         <button
                           title="Deactivate"
                           className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"

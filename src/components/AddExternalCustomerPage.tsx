@@ -8,10 +8,15 @@ import {
   ClipboardCheck,
   Users,
   CloudUpload,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
+import { createMember, generateMemberId } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function AddExternalCustomerPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   /* ── Personal Information ── */
   const [firstName, setFirstName] = useState("");
@@ -43,9 +48,39 @@ export default function AddExternalCustomerPage() {
   const [guarantorPhone, setGuarantorPhone] = useState("");
   const [guarantorRelationship, setGuarantorRelationship] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/members");
+    setError("");
+    setSubmitting(true);
+    try {
+      const memberId = await generateMemberId();
+      await createMember({
+        member_id: memberId,
+        first_name: firstName,
+        last_name: lastName,
+        email: email || null,
+        phone,
+        date_of_birth: dob || null,
+        gender: gender || null,
+        address,
+        employer: employer || null,
+        member_type: "external",
+        national_id: nationalId || null,
+        monthly_income: monthlyIncome ? parseFloat(monthlyIncome) : null,
+        guarantor_name: guarantorName || null,
+        guarantor_phone: guarantorPhone || null,
+        guarantor_relationship: guarantorRelationship || null,
+        created_by: user?.id,
+        status: "active",
+      });
+      navigate("/members");
+    } catch (err: any) {
+      setError(err.message || "Failed to add customer");
+    }
+    setSubmitting(false);
   };
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -426,14 +461,23 @@ export default function AddExternalCustomerPage() {
         </div>
       </section>
 
+      {/* ═══════════ Error Display ═══════════ */}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+
       {/* ═══════════ Footer Actions ═══════════ */}
       <div className="flex gap-4">
         <button
           type="submit"
-          className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+          disabled={submitting}
+          className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
         >
-          <Users className="w-4 h-4" />
-          Create Customer
+          {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
+          {submitting ? "Creating…" : "Create Customer"}
         </button>
         <Link
           to="/members"

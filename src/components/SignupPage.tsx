@@ -11,11 +11,16 @@ import {
   Globe,
   Landmark,
   ArrowRight,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import heroImg from "../assets/hero.png";
+import { useAuth } from "../auth/AuthContext";
 
 export default function SignupPage() {
+  const { signup } = useAuth();
+  const navigate = useNavigate();
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -24,11 +29,35 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // TODO: handle signup logic
-    console.log({ fullName, email, phone, password, confirmPassword, agreeTerms });
+    setError("");
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (!agreeTerms) {
+      setError("You must agree to the Terms & Conditions.");
+      return;
+    }
+
+    setSubmitting(true);
+    const result = await signup(email, password, fullName, phone || undefined);
+    setSubmitting(false);
+
+    if (result.success) {
+      navigate("/verify-email", { state: { email } });
+    } else {
+      setError(result.error ?? "Signup failed. Please try again.");
+    }
   };
 
   return (
@@ -101,6 +130,14 @@ export default function SignupPage() {
                   Fill in your details to get started
                 </p>
               </div>
+
+              {/* Error message */}
+              {error && (
+                <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                  <p className="text-sm text-red-600">{error}</p>
+                </div>
+              )}
 
               {/* Form */}
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -244,10 +281,20 @@ export default function SignupPage() {
                 {/* Submit button */}
                 <button
                   type="submit"
-                  className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all"
+                  disabled={submitting}
+                  className="w-full flex items-center justify-center gap-2 py-3.5 bg-navy-900 text-white font-semibold rounded-xl hover:bg-navy-800 active:scale-[0.99] transition-all disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Create Account
-                  <ArrowRight className="w-4 h-4" />
+                  {submitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Creating account…
+                    </>
+                  ) : (
+                    <>
+                      Create Account
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
                 </button>
               </form>
 

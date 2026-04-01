@@ -1,44 +1,63 @@
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useAuth } from "../auth/AuthContext";
+import { useAuth } from "../auth/useAuth";
 import {
   FileText,
   Clock,
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
+  Loader2,
 } from "lucide-react";
-
-/* ─── Mock Data ─── */
-const stats = [
-  { label: "My Active Applications", value: "12", change: "+3 this week", icon: FileText, color: "text-blue-600", bg: "bg-blue-50" },
-  { label: "Pending Review", value: "5", change: "Awaiting approval", icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
-  { label: "Approved This Month", value: "18", change: "+22%", icon: CheckCircle2, color: "text-green-600", bg: "bg-green-50" },
-  { label: "Overdue Loans", value: "3", change: "Follow up needed", icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
-];
-
-const recentApplications = [
-  { id: "L2045", member: "Aisha Bello", amount: "₦ 500,000", type: "Business Loan", status: "Under Review", statusColor: "bg-yellow-100 text-yellow-700", date: "Today" },
-  { id: "L2044", member: "Emeka Obi", amount: "₦ 250,000", type: "Personal Loan", status: "Approved", statusColor: "bg-green-100 text-green-700", date: "Yesterday" },
-  { id: "L2043", member: "Fatima Yusuf", amount: "₦ 1,200,000", type: "Agriculture Loan", status: "Documents Pending", statusColor: "bg-purple-100 text-purple-700", date: "2 days ago" },
-  { id: "L2042", member: "David Nwankwo", amount: "₦ 350,000", type: "Emergency Loan", status: "Disbursed", statusColor: "bg-blue-100 text-blue-700", date: "3 days ago" },
-  { id: "L2041", member: "Grace Oduya", amount: "₦ 800,000", type: "Business Loan", status: "Rejected", statusColor: "bg-red-100 text-red-700", date: "4 days ago" },
-];
-
-const overdueAlerts = [
-  { member: "Samuel Efio", loanId: "L1989", amount: "₦ 42,000", days: 14 },
-  { member: "Grace Odu", loanId: "L1972", amount: "₦ 15,500", days: 18 },
-  { member: "Tunde Bakare", loanId: "L1955", amount: "₦ 88,000", days: 7 },
-];
-
-const todayTasks = [
-  { task: "Follow up on loan #L2043 documents", priority: "High" },
-  { task: "Schedule interview for #L2045 application", priority: "Medium" },
-  { task: "Call overdue borrowers for payment", priority: "High" },
-  { task: "Submit weekly loan report", priority: "Low" },
-];
+import { fetchLoanApplications } from "../lib/db";
 
 export default function LoanOfficerDashboard() {
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [recentApplications, setRecentApplications] = useState<any[]>([]);
+  const [overdueAlerts, setOverdueAlerts] = useState<any[]>([]);
+  const [activeCount, setActiveCount] = useState(0);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [approvedCount, setApprovedCount] = useState(0);
+  const [overdueCount, setOverdueCount] = useState(0);
+  const [now] = useState(() => Date.now());
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [recent, pending, overdue, approved] = await Promise.all([
+          fetchLoanApplications({ page: 1, pageSize: 5 }),
+          fetchLoanApplications({ status: "pending", page: 1, pageSize: 1 }),
+          fetchLoanApplications({ status: "overdue", page: 1, pageSize: 5 }),
+          fetchLoanApplications({ status: "approved", page: 1, pageSize: 1 }),
+        ]);
+        setRecentApplications(recent.data);
+        setPendingCount(pending.count);
+        setOverdueAlerts(overdue.data);
+        setOverdueCount(overdue.count);
+        setApprovedCount(approved.count);
+        setActiveCount(recent.count);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, []);
+
+  const loanStatusColor: Record<string, string> = {
+    pending: "bg-yellow-100 text-yellow-700",
+    approved: "bg-green-100 text-green-700",
+    disbursed: "bg-blue-100 text-blue-700",
+    active: "bg-blue-100 text-blue-700",
+    rejected: "bg-red-100 text-red-700",
+    overdue: "bg-red-100 text-red-700",
+    completed: "bg-gray-100 text-gray-600",
+  };
+
+  const stats = [
+    { label: "Total Applications", value: String(activeCount), change: "", icon: FileText, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Pending Review", value: String(pendingCount), change: "Awaiting approval", icon: Clock, color: "text-amber-600", bg: "bg-amber-50" },
+    { label: "Approved", value: String(approvedCount), change: "", icon: CheckCircle2, color: "text-green-600", bg: "bg-green-50" },
+    { label: "Overdue Loans", value: String(overdueCount), change: overdueCount > 0 ? "Follow up needed" : "", icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
+  ];
 
   return (
     <div className="space-y-6">
@@ -55,14 +74,16 @@ export default function LoanOfficerDashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((s) => (
+        {loading ? (
+          <div className="col-span-4 flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-green-600" /></div>
+        ) : stats.map((s) => (
           <div key={s.label} className="bg-white rounded-xl border border-gray-100 p-5">
             <div className={`w-8 h-8 rounded-lg ${s.bg} flex items-center justify-center mb-2`}>
               <s.icon className={`w-4 h-4 ${s.color}`} />
             </div>
             <p className="text-2xl font-bold text-navy-900">{s.value}</p>
             <p className="text-xs text-gray-400 mt-1">{s.label}</p>
-            <p className="text-xs text-gray-400">{s.change}</p>
+            {s.change && <p className="text-xs text-gray-400">{s.change}</p>}
           </div>
         ))}
       </div>
@@ -86,15 +107,22 @@ export default function LoanOfficerDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {recentApplications.map((l) => (
+                {recentApplications.length === 0 ? (
+                  <tr><td colSpan={5} className="py-6 text-center text-gray-400 text-sm">No applications yet.</td></tr>
+                ) : recentApplications.map((l: any) => {
+                  const memberName = l.member ? `${l.member.first_name} ${l.member.last_name}` : "—";
+                  const mins = Math.floor((now - new Date(l.created_at).getTime()) / 60000);
+                  const ago = mins < 60 ? `${mins}m ago` : mins < 1440 ? `${Math.floor(mins / 60)}h ago` : `${Math.floor(mins / 1440)}d ago`;
+                  return (
                   <tr key={l.id} className="border-b border-gray-50 last:border-0">
-                    <td className="py-3 font-mono text-navy-900 font-medium">{l.id}</td>
-                    <td className="py-3 text-navy-900">{l.member}</td>
-                    <td className="py-3 font-bold text-navy-900">{l.amount}</td>
-                    <td className="py-3"><span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${l.statusColor}`}>{l.status}</span></td>
-                    <td className="py-3 text-gray-400">{l.date}</td>
+                    <td className="py-3 font-mono text-navy-900 font-medium">{l.loan_id || l.id?.slice(0, 8)}</td>
+                    <td className="py-3 text-navy-900">{memberName}</td>
+                    <td className="py-3 font-bold text-navy-900">₦ {Number(l.amount_requested).toLocaleString()}</td>
+                    <td className="py-3"><span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${loanStatusColor[l.status] || "bg-gray-100 text-gray-600"}`}>{l.status?.charAt(0).toUpperCase() + l.status?.slice(1)}</span></td>
+                    <td className="py-3 text-gray-400">{ago}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -108,33 +136,37 @@ export default function LoanOfficerDashboard() {
               <AlertTriangle className="w-5 h-5 text-red-500" /> Overdue Alerts
             </h2>
             <div className="space-y-3">
-              {overdueAlerts.map((o, i) => (
-                <div key={i} className="p-3 rounded-xl bg-red-50 border border-red-100">
+              {overdueAlerts.length === 0 ? (
+                <p className="text-sm text-gray-400">No overdue loans.</p>
+              ) : overdueAlerts.map((o: any) => {
+                const memberName = o.member ? `${o.member.first_name} ${o.member.last_name}` : "—";
+                return (
+                <div key={o.id} className="p-3 rounded-xl bg-red-50 border border-red-100">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-navy-900">{o.member}</p>
-                    <p className="text-xs font-bold text-red-600">{o.days} days</p>
+                    <p className="text-sm font-medium text-navy-900">{memberName}</p>
+                    <p className="text-xs font-bold text-red-600">Overdue</p>
                   </div>
-                  <p className="text-xs text-gray-500">{o.loanId} — {o.amount} due</p>
+                  <p className="text-xs text-gray-500">{o.loan_id || o.id?.slice(0, 8)} — ₦ {Number(o.amount_requested).toLocaleString()}</p>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
           {/* Today's Tasks */}
           <div className="bg-white rounded-xl border border-gray-100 p-6">
-            <h2 className="text-lg font-bold text-navy-900 mb-4">Today's Tasks</h2>
+            <h2 className="text-lg font-bold text-navy-900 mb-4">Quick Actions</h2>
             <div className="space-y-3">
-              {todayTasks.map((t, i) => (
-                <div key={i} className="flex items-start gap-3 p-3 rounded-xl hover:bg-gray-50">
+              {[
+                { task: "View all loan applications", to: "/loans" },
+                { task: "Create new loan application", to: "/loans/new" },
+                { task: "Record loan repayment", to: "/loans/record-repayment" },
+                { task: "Check overdue loans", to: "/loans/overdue" },
+              ].map((t, i) => (
+                <Link key={i} to={t.to} className="flex items-start gap-3 p-3 rounded-xl hover:bg-gray-50">
                   <ClipboardList className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-sm text-navy-900">{t.task}</p>
-                    <span className={`text-[10px] font-semibold uppercase tracking-wide ${
-                      t.priority === "High" ? "text-red-500" :
-                      t.priority === "Medium" ? "text-amber-500" : "text-gray-400"
-                    }`}>{t.priority}</span>
-                  </div>
-                </div>
+                  <p className="text-sm text-navy-900">{t.task}</p>
+                </Link>
               ))}
             </div>
           </div>

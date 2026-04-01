@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Search,
@@ -11,67 +11,9 @@ import {
   FileText,
   CheckCircle2,
   XCircle,
+  Loader2,
 } from "lucide-react";
-
-/* ─── Loan Data ─── */
-interface LoanApplication {
-  id: string;
-  avatar: string;
-  name: string;
-  memberId: string;
-  branch: string;
-  amount: string;
-  loanType: "Personal" | "Mortgage" | "Small Biz";
-  status: "Pending" | "Approved" | "Rejected";
-  dateApplied: string;
-}
-
-const loans: LoanApplication[] = [
-  {
-    id: "LN-2024-042",
-    avatar: "SJ",
-    name: "Sarah Jenkins",
-    memberId: "M-88294",
-    branch: "North Region",
-    amount: "$12,500.00",
-    loanType: "Personal",
-    status: "Pending",
-    dateApplied: "Oct 12, 2023",
-  },
-  {
-    id: "LN-2024-041",
-    avatar: "DC",
-    name: "David Chen",
-    memberId: "M-77123",
-    branch: "Central",
-    amount: "$45,000.00",
-    loanType: "Mortgage",
-    status: "Approved",
-    dateApplied: "Oct 11, 2023",
-  },
-  {
-    id: "LN-2024-040",
-    avatar: "RS",
-    name: "Robert Smith",
-    memberId: "M-91002",
-    branch: "West Coast",
-    amount: "$3,200.00",
-    loanType: "Small Biz",
-    status: "Rejected",
-    dateApplied: "Oct 10, 2023",
-  },
-  {
-    id: "LN-2024-039",
-    avatar: "EW",
-    name: "Emily Wilson",
-    memberId: "M-66321",
-    branch: "Central",
-    amount: "$21,000.00",
-    loanType: "Personal",
-    status: "Pending",
-    dateApplied: "Oct 10, 2023",
-  },
-];
+import { fetchLoanApplications, fetchBranches } from "../lib/db";
 
 const avatarColors = [
   "bg-amber-100 text-amber-700",
@@ -80,49 +22,75 @@ const avatarColors = [
   "bg-purple-100 text-purple-700",
 ];
 
-const loanTypeBadge = (type: LoanApplication["loanType"]) => {
+const loanTypeBadge = (type: string) => {
   const styles: Record<string, string> = {
-    Personal: "bg-blue-50 text-blue-600 border border-blue-200",
-    Mortgage: "bg-orange-50 text-orange-600 border border-orange-200",
-    "Small Biz": "bg-teal-50 text-teal-600 border border-teal-200",
+    personal: "bg-blue-50 text-blue-600 border border-blue-200",
+    mortgage: "bg-orange-50 text-orange-600 border border-orange-200",
+    business: "bg-teal-50 text-teal-600 border border-teal-200",
+    emergency: "bg-red-50 text-red-600 border border-red-200",
   };
   return (
-    <span
-      className={`inline-flex px-2.5 py-1 rounded text-xs font-medium ${styles[type]}`}
-    >
-      {type}
+    <span className={`inline-flex px-2.5 py-1 rounded text-xs font-medium ${styles[type] || "bg-gray-50 text-gray-600 border border-gray-200"}`}>
+      {type ? type.charAt(0).toUpperCase() + type.slice(1) : "—"}
     </span>
   );
 };
 
-const statusBadge = (status: LoanApplication["status"]) => {
+const statusBadge = (status: string) => {
   const styles: Record<string, string> = {
-    Pending: "bg-amber-50 text-amber-600 border border-amber-200",
-    Approved: "bg-green-50 text-green-600 border border-green-200",
-    Rejected: "bg-red-50 text-red-600 border border-red-200",
+    pending: "bg-amber-50 text-amber-600 border border-amber-200",
+    approved: "bg-green-50 text-green-600 border border-green-200",
+    rejected: "bg-red-50 text-red-600 border border-red-200",
+    disbursed: "bg-blue-50 text-blue-600 border border-blue-200",
+    completed: "bg-gray-50 text-gray-600 border border-gray-200",
   };
   return (
-    <span
-      className={`inline-flex px-2.5 py-1 rounded text-xs font-medium ${styles[status]}`}
-    >
-      {status}
+    <span className={`inline-flex px-2.5 py-1 rounded text-xs font-medium ${styles[status] || "bg-gray-50 text-gray-600 border border-gray-200"}`}>
+      {status ? status.charAt(0).toUpperCase() + status.slice(1) : "—"}
     </span>
   );
 };
 
 export default function LoanApplicationsPage() {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All Statuses");
-  const [branchFilter, setBranchFilter] = useState("All Branches");
-  const [amountFilter, setAmountFilter] = useState("Any Range");
-  const [dateFilter, setDateFilter] = useState("All Time");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
+  const [amountFilter, setAmountFilter] = useState("");
+  const [dateFilter, setDateFilter] = useState("");
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
+  const [loans, setLoans] = useState<any[]>([]);
+  const [totalResults, setTotalResults] = useState(0);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const totalResults = 152;
-  const perPage = 4;
-  const totalPages = 16;
+  const perPage = 10;
+  const totalPages = Math.ceil(totalResults / perPage) || 1;
+
+  useEffect(() => {
+    fetchBranches().then(setBranches).catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    loadLoans();
+  }, [currentPage, statusFilter, branchFilter, search]);
+
+  async function loadLoans() {
+    setLoading(true);
+    try {
+      const filters: any = { page: currentPage, per_page: perPage };
+      if (statusFilter) filters.status = statusFilter;
+      if (branchFilter) filters.branch_id = branchFilter;
+      if (search.trim()) filters.search = search.trim();
+      const { data, count } = await fetchLoanApplications(filters);
+      setLoans(data);
+      setTotalResults(count ?? 0);
+    } catch (err) {
+      console.error(err);
+    }
+    setLoading(false);
+  }
 
   const toggleSelectAll = () => {
     if (selectAll) {
@@ -142,10 +110,12 @@ export default function LoanApplicationsPage() {
   };
 
   const clearFilters = () => {
-    setStatusFilter("All Statuses");
-    setBranchFilter("All Branches");
-    setAmountFilter("Any Range");
-    setDateFilter("All Time");
+    setStatusFilter("");
+    setBranchFilter("");
+    setAmountFilter("");
+    setDateFilter("");
+    setSearch("");
+    setCurrentPage(1);
   };
 
   return (
@@ -198,10 +168,11 @@ export default function LoanApplicationsPage() {
               onChange={(e) => setStatusFilter(e.target.value)}
               className="appearance-none pl-1 pr-6 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
             >
-              <option>All Statuses</option>
-              <option>Pending</option>
-              <option>Approved</option>
-              <option>Rejected</option>
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="disbursed">Disbursed</option>
             </select>
             <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
@@ -216,10 +187,10 @@ export default function LoanApplicationsPage() {
               onChange={(e) => setBranchFilter(e.target.value)}
               className="appearance-none pl-1 pr-6 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
             >
-              <option>All Branches</option>
-              <option>North Region</option>
-              <option>Central</option>
-              <option>West Coast</option>
+              <option value="">All Branches</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
             </select>
             <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
@@ -235,10 +206,10 @@ export default function LoanApplicationsPage() {
               className="appearance-none pl-1 pr-6 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
             >
               <option>Any Range</option>
-              <option>Under $5,000</option>
-              <option>$5,000 - $20,000</option>
-              <option>$20,000 - $50,000</option>
-              <option>Over $50,000</option>
+              <option>Under ₦5,000</option>
+              <option>₦5,000 - ₦20,000</option>
+              <option>₦20,000 - ₦50,000</option>
+              <option>Over ₦50,000</option>
             </select>
             <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
           </div>
@@ -336,12 +307,15 @@ export default function LoanApplicationsPage() {
               </tr>
             </thead>
             <tbody>
-              {loans.map((loan, i) => (
+              {loading ? (
+                <tr><td colSpan={9} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+              ) : loans.length === 0 ? (
+                <tr><td colSpan={9} className="px-6 py-12 text-center text-sm text-gray-400">No loan applications found.</td></tr>
+              ) : loans.map((loan, i) => (
                 <tr
-                  key={i}
+                  key={loan.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                 >
-                  {/* Checkbox */}
                   <td className="px-6 py-5">
                     <input
                       type="checkbox"
@@ -350,73 +324,39 @@ export default function LoanApplicationsPage() {
                       className="w-4 h-4 rounded border-gray-300 text-navy-900 focus:ring-navy-900"
                     />
                   </td>
-
-                  {/* Loan ID */}
                   <td className="px-4 py-5">
-                    <p className="text-sm font-semibold text-navy-900">
-                      {loan.id}
-                    </p>
+                    <p className="text-sm font-semibold text-navy-900">{loan.loan_id}</p>
                   </td>
-
-                  {/* Member */}
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-3">
-                      <div
-                        className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${avatarColors[i % avatarColors.length]}`}
-                      >
-                        {loan.avatar}
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${avatarColors[i % avatarColors.length]}`}>
+                        {loan.member?.first_name?.[0]}{loan.member?.last_name?.[0]}
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-navy-900">
-                          {loan.name}
-                        </p>
-                        <p className="text-xs text-gray-400">{loan.memberId}</p>
+                        <p className="text-sm font-semibold text-navy-900">{loan.member?.first_name} {loan.member?.last_name}</p>
+                        <p className="text-xs text-gray-400">{loan.member?.member_id}</p>
                       </div>
                     </div>
                   </td>
-
-                  {/* Branch */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-gray-600">{loan.branch}</p>
+                    <p className="text-sm text-gray-600">{loan.branch?.name || "—"}</p>
                   </td>
-
-                  {/* Amount */}
                   <td className="px-4 py-5">
-                    <p className="text-sm font-semibold text-navy-900">
-                      {loan.amount}
-                    </p>
+                    <p className="text-sm font-semibold text-navy-900">₦{Number(loan.amount).toLocaleString()}</p>
                   </td>
-
-                  {/* Loan Type */}
                   <td className="px-4 py-5 text-center">
-                    {loanTypeBadge(loan.loanType)}
+                    {loanTypeBadge(loan.loan_type)}
                   </td>
-
-                  {/* Status */}
                   <td className="px-4 py-5 text-center">
                     {statusBadge(loan.status)}
                   </td>
-
-                  {/* Date Applied */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-gray-600">{loan.dateApplied}</p>
+                    <p className="text-sm text-gray-600">{new Date(loan.created_at).toLocaleDateString()}</p>
                   </td>
-
-                  {/* Actions */}
                   <td className="px-4 py-5">
                     <div className="flex items-center justify-center gap-1">
-                      <Link
-                        title="Documents"
-                        to={`/loans/${encodeURIComponent(loan.id)}`}
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
-                        <FileText className="w-4 h-4" />
-                      </Link>
-                      <Link
-                        title="View"
-                        to={`/loans/${encodeURIComponent(loan.id)}`}
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
+                      <Link title="View" to={`/loans/${loan.id}`}
+                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <Eye className="w-4 h-4" />
                       </Link>
                     </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Info,
@@ -10,14 +10,21 @@ import {
   Plus,
   UserX,
   Save,
+  Loader2,
+  AlertCircle,
+  X,
 } from "lucide-react";
+import { fetchBranches, fetchMembers, createGroup, addGroupMember } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function CreateGroupPage() {
   const navigate = useNavigate();
+  const { profile } = useAuth();
 
   /* ── Basic Information ── */
   const [groupName, setGroupName] = useState("");
-  const [branch, setBranch] = useState("Main HQ Office");
+  const [groupCode, setGroupCode] = useState("");
+  const [branch, setBranch] = useState("");
   const [statusActive, setStatusActive] = useState(true);
 
   /* ── Group Leadership ── */
@@ -31,14 +38,86 @@ export default function CreateGroupPage() {
 
   /* ── Member Assignment ── */
   const [memberSearch, setMemberSearch] = useState("");
-  const [assignedMembers] = useState<string[]>([]);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [assignedMembers, setAssignedMembers] = useState<any[]>([]);
 
   /* ── Notes ── */
   const [notes, setNotes] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
+  /* ── Data / UI state ── */
+  const [branches, setBranches] = useState<any[]>([]);
+  const [allMembers, setAllMembers] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  /* ── Load branches & members for dropdowns ── */
+  useEffect(() => {
+    fetchBranches().then(setBranches).catch(console.error);
+    fetchMembers().then((r) => setAllMembers(r.data)).catch(console.error);
+  }, []);
+
+  /* ── Auto-generate group code from name ── */
+  useEffect(() => {
+    if (groupName.trim()) {
+      const code = "GRP-" + groupName.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) + "-" + String(Date.now()).slice(-4);
+      setGroupCode(code);
+    } else {
+      setGroupCode("");
+    }
+  }, [groupName]);
+
+  /* ── Debounced member search ── */
+  const handleMemberSearch = useCallback(async (q: string) => {
+    setMemberSearch(q);
+    if (q.trim().length < 2) { setSearchResults([]); return; }
+    setSearching(true);
+    try {
+      const { data } = await fetchMembers({ search: q });
+      setSearchResults(data.filter((m: any) => !assignedMembers.find((a) => a.id === m.id)));
+    } catch { setSearchResults([]); }
+    setSearching(false);
+  }, [assignedMembers]);
+
+  const addMember = (member: any) => {
+    setAssignedMembers((prev) => [...prev, member]);
+    setSearchResults([]);
+    setMemberSearch("");
+  };
+
+  const removeMember = (id: string) => {
+    setAssignedMembers((prev) => prev.filter((m) => m.id !== id));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/groups");
+    setError("");
+    if (!groupName.trim() || !branch) { setError("Group name and branch are required."); return; }
+    setSubmitting(true);
+    try {
+      const group = await createGroup({
+        name: groupName.trim(),
+        group_code: groupCode,
+        branch_id: branch,
+        leader_id: leader || null,
+        secretary_id: secretary || null,
+        max_members: parseInt(maxMembers) || 30,
+        loan_eligibility_rule: loanRule,
+        min_savings: parseFloat(minSavings) || 0,
+        status: statusActive ? "active" : "inactive",
+        notes,
+        created_by: profile?.id ?? null,
+      });
+      // Add assigned members
+      for (const m of assignedMembers) {
+        await addGroupMember(group.id, m.id);
+      }
+      navigate("/groups");
+    } catch (err: any) {
+      setError(err.message || "Failed to create group.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   /* ── Reusable section heading ── */
@@ -92,10 +171,10 @@ export default function CreateGroupPage() {
 
             {/* Group ID — auto-generated, read-only */}
             <div>
-              <Label>Group ID</Label>
+              <Label>Group Code</Label>
               <input
                 type="text"
-                value="GRP-2023-089"
+                value={groupCode || "Auto-generated"}
                 readOnly
                 className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 bg-gray-50 cursor-not-allowed"
               />
@@ -110,11 +189,10 @@ export default function CreateGroupPage() {
                   onChange={(e) => setBranch(e.target.value)}
                   className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
                 >
-                  <option>Main HQ Office</option>
-                  <option>North Branch</option>
-                  <option>East Region</option>
-                  <option>West Region</option>
-                  <option>South Sector</option>
+                  <option value="">Select Branch</option>
+                  {branches.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
                 </select>
                 <svg
                   className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
@@ -174,10 +252,9 @@ export default function CreateGroupPage() {
                   className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
                 >
                   <option value="">Select Leader</option>
-                  <option>Michael Chen</option>
-                  <option>Robert Wilson</option>
-                  <option>David Osei</option>
-                  <option>Alice Thompson</option>
+                  {allMembers.map((m) => (
+                    <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
+                  ))}
                 </select>
                 <svg
                   className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
@@ -205,10 +282,9 @@ export default function CreateGroupPage() {
                   className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
                 >
                   <option value="">Select Secretary</option>
-                  <option>Sarah Johnson</option>
-                  <option>Maria Garcia</option>
-                  <option>Amara Okafor</option>
-                  <option>Grace Kim</option>
+                  {allMembers.map((m) => (
+                    <option key={m.id} value={m.id}>{m.first_name} {m.last_name}</option>
+                  ))}
                 </select>
                 <svg
                   className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
@@ -302,25 +378,49 @@ export default function CreateGroupPage() {
           </div>
 
           {/* Search + Add */}
-          <div className="flex items-center gap-3 mb-5">
-            <div className="relative flex-1">
+          <div className="relative mb-5">
+            <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search members by name, ID or phone..."
                 value={memberSearch}
-                onChange={(e) => setMemberSearch(e.target.value)}
+                onChange={(e) => handleMemberSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
               />
+              {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />}
             </div>
-            <button
-              type="button"
-              className="flex items-center gap-1.5 px-4 py-2.5 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Add
-            </button>
+            {searchResults.length > 0 && (
+              <div className="absolute z-10 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                {searchResults.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => addMember(m)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-gray-50 text-sm"
+                  >
+                    <span className="font-medium text-navy-900">{m.first_name} {m.last_name}</span>
+                    <span className="text-xs text-gray-500">{m.member_id}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Assigned members list */}
+          {assignedMembers.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {assignedMembers.map((m) => (
+                <div key={m.id} className="flex items-center justify-between px-4 py-2.5 bg-gray-50 rounded-lg">
+                  <div>
+                    <span className="text-sm font-medium text-navy-900">{m.first_name} {m.last_name}</span>
+                    <span className="ml-2 text-xs text-gray-500">{m.member_id}</span>
+                  </div>
+                  <button type="button" onClick={() => removeMember(m.id)} className="text-red-500 hover:text-red-700"><X className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Empty state */}
           {assignedMembers.length === 0 && (
@@ -353,6 +453,12 @@ export default function CreateGroupPage() {
         </section>
 
         {/* ═══════════ Footer Actions ═══════════ */}
+        {error && (
+          <div className="flex items-center gap-2 p-4 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {error}
+          </div>
+        )}
         <div className="flex items-center justify-end gap-4 pt-2">
           <Link
             to="/groups"
@@ -362,10 +468,11 @@ export default function CreateGroupPage() {
           </Link>
           <button
             type="submit"
-            className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors"
+            disabled={submitting}
+            className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors disabled:opacity-50"
           >
-            <Save className="w-4 h-4" />
-            Save Group
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {submitting ? "Saving..." : "Save Group"}
           </button>
         </div>
       </form>

@@ -1,19 +1,56 @@
-import { useState } from "react";
-import { Link } from "react-router-dom";
-import { Save, UploadCloud, Info } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Save, UploadCloud, Info, Loader2, X } from "lucide-react";
+import { fetchBranches, createFinanceTransaction, uploadFile } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function AddExpensePage() {
+  const navigate = useNavigate();
+  const { profile } = useAuth();
+  const [branches, setBranches] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [receiptFile, setReceiptFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     category: "",
     amount: "",
     branch: "",
     paymentMethod: "",
-    expenseDate: "",
+    expenseDate: new Date().toISOString().split("T")[0],
     description: "",
   });
 
+  useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
+
   const update = (field: string, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+
+  const handleSubmit = async () => {
+    if (!form.category || !form.amount || !form.expenseDate) { setError("Please fill in category, amount and date"); return; }
+    setError("");
+    setSubmitting(true);
+    try {
+      let receipt_url = "";
+      if (receiptFile) {
+        const ext = receiptFile.name.split(".").pop() || "file";
+        const path = `receipts/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+        try { receipt_url = await uploadFile("documents", path, receiptFile); } catch {}
+      }
+      await createFinanceTransaction({
+        type: "expense",
+        category: form.category,
+        description: form.description,
+        amount: parseFloat(form.amount.replace(/,/g, "")),
+        payment_method: form.paymentMethod,
+        branch_id: form.branch || undefined,
+        date: form.expenseDate,
+        recorded_by: profile?.id ?? "",
+        receipt_url,
+      });
+      navigate("/finance");
+    } catch (e: any) { setError(e.message || "Failed to save expense"); }
+    setSubmitting(false);
+  };
 
   return (
     <div className="space-y-6">
@@ -70,10 +107,7 @@ export default function AddExpensePage() {
               className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none"
             >
               <option value="">Select Branch</option>
-              <option value="lagos-central">Lagos Central</option>
-              <option value="abuja">Abuja Branch</option>
-              <option value="port-harcourt">Port Harcourt</option>
-              <option value="ibadan">Ibadan Branch</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
 
@@ -129,15 +163,38 @@ export default function AddExpensePage() {
             <label className="block text-sm font-semibold text-navy-900 mb-2">
               Receipt Upload
             </label>
-            <div className="border-2 border-dashed border-green-300 bg-green-50/40 rounded-xl p-10 flex flex-col items-center justify-center cursor-pointer hover:bg-green-50/70 transition-colors">
-              <UploadCloud className="w-10 h-10 text-gray-400 mb-3" />
-              <p className="text-sm font-semibold text-navy-900">
-                Click to upload or drag and drop
-              </p>
-              <p className="text-xs text-gray-400 mt-1">
-                PNG, JPG, or PDF (max. 5MB)
-              </p>
-            </div>
+            {receiptFile ? (
+              <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-4">
+                <UploadCloud className="w-5 h-5 text-green-600 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-navy-900 truncate">{receiptFile.name}</p>
+                  <p className="text-xs text-gray-400">{(receiptFile.size / 1024).toFixed(1)} KB</p>
+                </div>
+                <button type="button" onClick={() => setReceiptFile(null)} className="p-1 hover:bg-green-100 rounded-lg transition-colors">
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+            ) : (
+              <label className="border-2 border-dashed border-green-300 bg-green-50/40 rounded-xl p-10 flex flex-col items-center justify-center cursor-pointer hover:bg-green-50/70 transition-colors">
+                <UploadCloud className="w-10 h-10 text-gray-400 mb-3" />
+                <p className="text-sm font-semibold text-navy-900">
+                  Click to upload or drag and drop
+                </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  PNG, JPG, or PDF (max. 5MB)
+                </p>
+                <input
+                  type="file"
+                  accept=".png,.jpg,.jpeg,.pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f && f.size <= 5 * 1024 * 1024) setReceiptFile(f);
+                    else if (f) setError("File too large (max 5MB)");
+                  }}
+                />
+              </label>
+            )}
           </div>
         </div>
 
@@ -146,9 +203,18 @@ export default function AddExpensePage() {
           <Link to="/finance" className="px-6 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             Cancel
           </Link>
-          <button className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
-            <Save className="w-4 h-4" />
-            Save Expense
+          {error && (
+            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl mb-4">
+              <p className="text-sm text-red-600">{error}</p>
+            </div>
+          )}
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="flex items-center gap-2 px-6 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors disabled:opacity-50"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {submitting ? 'Saving...' : 'Save Expense'}
           </button>
         </div>
       </div>

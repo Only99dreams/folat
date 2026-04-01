@@ -1,110 +1,87 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   Plus,
   Inbox,
   Send,
-  Archive,
-  Star,
-  Paperclip,
-  MoreVertical,
-  ChevronLeft,
-  ChevronRight,
+  Loader2,
 } from "lucide-react";
+import { fetchMessages, markMessageRead, sendMessage, fetchAllProfiles } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
-/* ─── Message Data ─── */
-interface Message {
-  id: string;
-  senderInitials: string;
-  senderBg: string;
-  senderName: string;
-  subject: string;
-  preview: string;
-  date: string;
-  time: string;
-  read: boolean;
-  starred: boolean;
-  hasAttachment: boolean;
-}
-
-const messages: Message[] = [
-  {
-    id: "MSG-001",
-    senderInitials: "AO",
-    senderBg: "bg-navy-900",
-    senderName: "Adebayo Ogundimu",
-    subject: "Q4 Branch Performance Report",
-    preview: "Please find attached the quarterly performance report for Lagos Central branch...",
-    date: "Oct 24",
-    time: "09:15 AM",
-    read: false,
-    starred: true,
-    hasAttachment: true,
-  },
-  {
-    id: "MSG-002",
-    senderInitials: "SJ",
-    senderBg: "bg-green-600",
-    senderName: "Sarah Jenkins",
-    subject: "Leave Request Approval",
-    preview: "Your annual leave request for November 5-9 has been approved by the HR department...",
-    date: "Oct 23",
-    time: "04:30 PM",
-    read: true,
-    starred: false,
-    hasAttachment: false,
-  },
-  {
-    id: "MSG-003",
-    senderInitials: "FD",
-    senderBg: "bg-blue-600",
-    senderName: "Finance Department",
-    subject: "Monthly Salary Statement - October 2023",
-    preview: "Your October 2023 salary statement is now available. Please review the breakdown...",
-    date: "Oct 22",
-    time: "11:00 AM",
-    read: true,
-    starred: false,
-    hasAttachment: true,
-  },
-  {
-    id: "MSG-004",
-    senderInitials: "IT",
-    senderBg: "bg-amber-500",
-    senderName: "IT Support",
-    subject: "System Maintenance Scheduled",
-    preview: "Please be informed that the system will undergo maintenance on Sunday Oct 29...",
-    date: "Oct 21",
-    time: "02:45 PM",
-    read: true,
-    starred: false,
-    hasAttachment: false,
-  },
-  {
-    id: "MSG-005",
-    senderInitials: "MA",
-    senderBg: "bg-purple-600",
-    senderName: "Management",
-    subject: "New Policy Update - Loan Disbursement",
-    preview: "Effective November 1st, all loan disbursements above ₦500,000 will require...",
-    date: "Oct 20",
-    time: "10:30 AM",
-    read: false,
-    starred: true,
-    hasAttachment: true,
-  },
-];
-
-const folders = [
-  { icon: Inbox, label: "Inbox", count: 12, active: true },
-  { icon: Send, label: "Sent", count: 0, active: false },
-  { icon: Star, label: "Starred", count: 3, active: false },
-  { icon: Archive, label: "Archived", count: 0, active: false },
-];
+const avatarColors = ["bg-navy-900","bg-green-600","bg-blue-600","bg-amber-500","bg-purple-600","bg-pink-600","bg-teal-600"];
 
 export default function MessagesPage() {
+  const { user } = useAuth();
+  const [msgs, setMsgs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeFolder, setActiveFolder] = useState("inbox");
+  const [showCompose, setShowCompose] = useState(false);
+  const [profiles, setProfiles] = useState<any[]>([]);
+  const [composeSending, setComposeSending] = useState(false);
+  const [composeForm, setComposeForm] = useState({ recipient_id: "", subject: "", body: "" });
+
+  const loadMessages = async () => {
+    if (!user?.id) return;
+    setLoading(true);
+    try {
+      const data = await fetchMessages(user.id, activeFolder === "inbox" ? undefined : activeFolder);
+      setMsgs(data);
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { loadMessages(); }, [user?.id, activeFolder]);
+
+  const openCompose = () => {
+    if (profiles.length === 0) {
+      fetchAllProfiles().then(setProfiles).catch(() => {});
+    }
+    setComposeForm({ recipient_id: "", subject: "", body: "" });
+    setShowCompose(true);
+  };
+
+  const handleComposeSend = async () => {
+    if (!composeForm.recipient_id || !composeForm.subject.trim() || !composeForm.body.trim()) return;
+    setComposeSending(true);
+    try {
+      await sendMessage({
+        sender_id: user!.id,
+        recipient_id: composeForm.recipient_id,
+        subject: composeForm.subject,
+        body: composeForm.body,
+      });
+      setShowCompose(false);
+      loadMessages();
+    } catch {}
+    setComposeSending(false);
+  };
+
+  const handleSelect = async (id: string) => {
+    setSelectedMessage(id);
+    const msg = msgs.find(m => m.id === id);
+    if (msg && !msg.is_read) {
+      await markMessageRead(id);
+      setMsgs(prev => prev.map(m => m.id === id ? { ...m, is_read: true } : m));
+    }
+  };
+
+  const filtered = msgs.filter(m => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (m.subject || "").toLowerCase().includes(q) ||
+      (m.body || "").toLowerCase().includes(q) ||
+      (m.sender?.full_name || "").toLowerCase().includes(q);
+  });
+
+  const unreadCount = msgs.filter(m => !m.is_read).length;
+
+  const folders = [
+    { icon: Inbox, label: "Inbox", key: "inbox", count: unreadCount },
+    { icon: Send, label: "Sent", key: "sent", count: 0 },
+  ];
 
   return (
     <div className="space-y-6">
@@ -116,7 +93,7 @@ export default function MessagesPage() {
             Internal communication hub for staff and branch coordination.
           </p>
         </div>
-        <button className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
+        <button onClick={openCompose} className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
           <Plus className="w-4 h-4" />
           Compose Message
         </button>
@@ -131,8 +108,9 @@ export default function MessagesPage() {
               {folders.map((folder, i) => (
                 <button
                   key={i}
+                  onClick={() => setActiveFolder(folder.key)}
                   className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                    folder.active
+                    activeFolder === folder.key
                       ? "bg-green-50 text-green-700 font-semibold"
                       : "text-gray-600 hover:bg-gray-50"
                   }`}
@@ -143,7 +121,7 @@ export default function MessagesPage() {
                   </div>
                   {folder.count > 0 && (
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      folder.active ? "bg-green-600 text-white" : "bg-gray-100 text-gray-500"
+                      activeFolder === folder.key ? "bg-green-600 text-white" : "bg-gray-100 text-gray-500"
                     }`}>
                       {folder.count}
                     </span>
@@ -153,13 +131,19 @@ export default function MessagesPage() {
             </div>
           </div>
 
-          {/* Storage */}
+          {/* Quick Stats */}
           <div className="bg-white rounded-xl border border-gray-100 p-4">
-            <p className="text-xs font-semibold text-navy-900 mb-2">Storage Used</p>
-            <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden mb-1.5">
-              <div className="w-1/3 h-full bg-green-500 rounded-full" />
+            <p className="text-xs font-semibold text-navy-900 mb-2">Quick Stats</p>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Total Messages</span>
+                <span className="font-semibold text-navy-900">{msgs.length}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Unread</span>
+                <span className="font-semibold text-green-600">{unreadCount}</span>
+              </div>
             </div>
-            <p className="text-[10px] text-gray-400">1.2 GB of 5 GB used</p>
           </div>
         </div>
 
@@ -181,58 +165,139 @@ export default function MessagesPage() {
 
           {/* Messages */}
           <div className="divide-y divide-gray-50">
-            {messages.map((msg) => (
+            {loading ? (
+              <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900" /></div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-12 text-gray-400 text-sm">No messages</div>
+            ) : filtered.map((msg: any, i: number) => {
+              const senderName = msg.sender?.full_name || "Unknown";
+              const initials = msg.sender?.avatar_initials || senderName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0,2);
+              const bgColor = avatarColors[i % avatarColors.length];
+              const dateStr = msg.created_at ? new Date(msg.created_at).toLocaleDateString("en-NG",{month:"short",day:"numeric"}) : "";
+              return (
               <button
                 key={msg.id}
-                onClick={() => setSelectedMessage(msg.id)}
+                onClick={() => handleSelect(msg.id)}
                 className={`w-full flex items-start gap-4 px-6 py-4 text-left hover:bg-gray-50/50 transition-colors ${
-                  !msg.read ? "bg-green-50/30" : ""
+                  !msg.is_read ? "bg-green-50/30" : ""
                 } ${selectedMessage === msg.id ? "bg-green-50" : ""}`}
               >
-                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${msg.senderBg}`}>
-                  {msg.senderInitials}
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${bgColor}`}>
+                  {initials}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-0.5">
-                    <p className={`text-sm ${!msg.read ? "font-bold text-navy-900" : "font-medium text-gray-700"}`}>
-                      {msg.senderName}
+                    <p className={`text-sm ${!msg.is_read ? "font-bold text-navy-900" : "font-medium text-gray-700"}`}>
+                      {senderName}
                     </p>
-                    <span className="text-xs text-gray-400 flex-shrink-0 ml-3">{msg.date}</span>
+                    <span className="text-xs text-gray-400 flex-shrink-0 ml-3">{dateStr}</span>
                   </div>
-                  <p className={`text-sm truncate ${!msg.read ? "font-semibold text-navy-900" : "text-gray-600"}`}>
+                  <p className={`text-sm truncate ${!msg.is_read ? "font-semibold text-navy-900" : "text-gray-600"}`}>
                     {msg.subject}
                   </p>
-                  <p className="text-xs text-gray-400 truncate mt-0.5">{msg.preview}</p>
+                  <p className="text-xs text-gray-400 truncate mt-0.5">{(msg.body || "").slice(0,80)}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 mt-1">
-                  {msg.starred && <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />}
-                  {msg.hasAttachment && <Paperclip className="w-3.5 h-3.5 text-gray-400" />}
-                  {!msg.read && <span className="w-2 h-2 rounded-full bg-green-500" />}
+                  {!msg.is_read && <span className="w-2 h-2 rounded-full bg-green-500" />}
                 </div>
               </button>
-            ))}
+              );
+            })}
           </div>
 
           {/* Pagination */}
           <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
             <p className="text-sm text-gray-500">
-              Showing <span className="font-semibold text-navy-900">1 to 5</span> of{" "}
-              <span className="font-semibold text-navy-900">12</span> messages
+              Showing <span className="font-semibold text-navy-900">1 to {filtered.length}</span> of{" "}
+              <span className="font-semibold text-navy-900">{msgs.length}</span> messages
             </p>
-            <div className="flex items-center gap-1">
-              <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50">
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button className="w-8 h-8 flex items-center justify-center rounded-lg bg-navy-900 text-white text-sm font-semibold">1</button>
-              <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">2</button>
-              <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50">3</button>
-              <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50">
-                <ChevronRight className="w-4 h-4" />
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Message Detail Panel ─── */}
+      {selectedMessage && (() => {
+        const msg = msgs.find(m => m.id === selectedMessage);
+        if (!msg) return null;
+        const senderName = msg.sender?.full_name || "Unknown";
+        const recipientName = msg.recipient?.full_name || "";
+        return (
+          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-navy-900">{msg.subject}</h2>
+              <button onClick={() => setSelectedMessage(null)} className="text-gray-400 hover:text-gray-600 text-sm font-medium">Close</button>
+            </div>
+            <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold text-navy-900">{senderName}</p>
+                {recipientName && <p className="text-xs text-gray-400">To: {recipientName}</p>}
+              </div>
+              <p className="text-xs text-gray-400">{msg.created_at ? new Date(msg.created_at).toLocaleString("en-NG") : ""}</p>
+            </div>
+            <div className="px-6 py-5">
+              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{msg.body}</p>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ─── Compose Message Modal ─── */}
+      {showCompose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-navy-900">Compose Message</h3>
+              <button onClick={() => setShowCompose(false)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-1.5">To</label>
+                <select
+                  value={composeForm.recipient_id}
+                  onChange={(e) => setComposeForm(prev => ({ ...prev, recipient_id: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-500 appearance-none"
+                >
+                  <option value="">Select recipient...</option>
+                  {profiles.filter(p => p.id !== user?.id).map(p => (
+                    <option key={p.id} value={p.id}>{p.full_name} ({p.role || "staff"})</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-1.5">Subject</label>
+                <input
+                  type="text"
+                  placeholder="Message subject"
+                  value={composeForm.subject}
+                  onChange={(e) => setComposeForm(prev => ({ ...prev, subject: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-1.5">Message</label>
+                <textarea
+                  rows={6}
+                  placeholder="Type your message..."
+                  value={composeForm.body}
+                  onChange={(e) => setComposeForm(prev => ({ ...prev, body: e.target.value }))}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
+              <button onClick={() => setShowCompose(false)} className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50">Cancel</button>
+              <button
+                onClick={handleComposeSend}
+                disabled={composeSending || !composeForm.recipient_id || !composeForm.subject.trim() || !composeForm.body.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 disabled:opacity-50"
+              >
+                {composeSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                Send Message
               </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

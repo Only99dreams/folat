@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Download,
@@ -9,72 +9,36 @@ import {
   Banknote,
   Users,
   Clock,
+  Loader2,
 } from "lucide-react";
+import { fetchLoanApplications } from "../lib/db";
 
-/* ─── Delinquent Loan Data ─── */
-interface OverdueLoan {
-  id: string;
-  avatar: string;
-  avatarColor: string;
-  name: string;
-  loanAmount: string;
-  amountOverdue: string;
-  daysOverdue: number;
-  daysBadgeColor: string;
-  lastPayment: string;
-}
-
-const loans: OverdueLoan[] = [
-  {
-    id: "#FL-4892",
-    avatar: "EO",
-    avatarColor: "bg-green-600 text-white",
-    name: "Emeka Okafor",
-    loanAmount: "₦2,500,000",
-    amountOverdue: "₦ 850,000",
-    daysOverdue: 45,
-    daysBadgeColor: "bg-red-100 text-red-600",
-    lastPayment: "Oct 12, 2023",
-  },
-  {
-    id: "#FL-3102",
-    avatar: "AS",
-    avatarColor: "bg-purple-500 text-white",
-    name: "Aisha Sani",
-    loanAmount: "₦1,200,000",
-    amountOverdue: "₦ 120,000",
-    daysOverdue: 12,
-    daysBadgeColor: "bg-amber-100 text-amber-600",
-    lastPayment: "Nov 28, 2023",
-  },
-  {
-    id: "#FL-5120",
-    avatar: "CO",
-    avatarColor: "bg-blue-600 text-white",
-    name: "Chinwe Okoro",
-    loanAmount: "₦4,000,000",
-    amountOverdue: "₦ 2,100,000",
-    daysOverdue: 68,
-    daysBadgeColor: "bg-red-100 text-red-600",
-    lastPayment: "Sep 05, 2023",
-  },
-  {
-    id: "#FL-2219",
-    avatar: "BM",
-    avatarColor: "bg-teal-600 text-white",
-    name: "Babatunde Musa",
-    loanAmount: "₦850,000",
-    amountOverdue: "₦ 85,000",
-    daysOverdue: 8,
-    daysBadgeColor: "bg-amber-100 text-amber-600",
-    lastPayment: "Dec 01, 2023",
-  },
+const avatarColors = [
+  "bg-green-600 text-white",
+  "bg-purple-500 text-white",
+  "bg-blue-600 text-white",
+  "bg-teal-600 text-white",
+  "bg-amber-600 text-white",
+  "bg-rose-600 text-white",
 ];
 
 export default function OverdueLoansPage() {
   const [currentPage, setCurrentPage] = useState(1);
-  const totalEntries = 126;
-  const totalPages = Math.ceil(totalEntries / 4);
+  const [loans, setLoans] = useState<any[]>([]);
+  const [totalEntries, setTotalEntries] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const perPage = 10;
+  const totalPages = Math.max(1, Math.ceil(totalEntries / perPage));
+
+  useEffect(() => {
+    setLoading(true);
+    // Fetch disbursed loans — in a real app we'd have an "overdue" status or filter by schedule
+    fetchLoanApplications({ status: "disbursed", page: currentPage, pageSize: perPage })
+      .then(({ data, count }) => {
+        setLoans(data);
+        setTotalEntries(count);
+      }).catch(() => {}).finally(() => setLoading(false));
+  }, [currentPage]);
 
   return (
     <div className="space-y-6">
@@ -111,10 +75,10 @@ export default function OverdueLoansPage() {
             </div>
           </div>
           <p className="text-3xl font-bold text-navy-900 mb-2">
-            ₦180,000,000
+            ₦{loans.reduce((s, l) => s + Number(l.amount_approved ?? l.amount_requested ?? 0), 0).toLocaleString()}
           </p>
           <p className="text-xs text-red-500 font-medium flex items-center gap-1">
-            <span>↗</span> +12.5% vs last month
+            <span>↗</span> overdue balance
           </p>
         </div>
 
@@ -128,9 +92,9 @@ export default function OverdueLoansPage() {
               <Users className="w-5 h-5 text-gray-400" />
             </div>
           </div>
-          <p className="text-3xl font-bold text-navy-900 mb-2">126</p>
+          <p className="text-3xl font-bold text-navy-900 mb-2">{totalEntries}</p>
           <p className="text-xs text-green-600 font-medium flex items-center gap-1">
-            <span>↗</span> +5.2% active alerts
+            <span>↗</span> active alerts
           </p>
         </div>
 
@@ -203,84 +167,60 @@ export default function OverdueLoansPage() {
               </tr>
             </thead>
             <tbody>
-              {loans.map((loan, i) => (
+              {loading ? (
+                <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+              ) : loans.length === 0 ? (
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No overdue loans found.</td></tr>
+              ) : loans.map((loan, i) => {
+                const memberName = loan.member ? `${loan.member.first_name} ${loan.member.last_name}` : "N/A";
+                const initials = memberName.split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase();
+                const amount = Number(loan.amount_approved ?? loan.amount_requested ?? 0);
+                const monthlyPmt = Number(loan.monthly_repayment ?? 0);
+                return (
                 <tr
-                  key={i}
+                  key={loan.id}
                   className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
                 >
-                  {/* Loan ID */}
                   <td className="px-6 py-5">
-                    <p className="text-sm font-semibold text-navy-900">
-                      {loan.id}
-                    </p>
+                    <p className="text-sm font-semibold text-navy-900">{loan.loan_id}</p>
                   </td>
-
-                  {/* Member */}
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${loan.avatarColor}`}
-                      >
-                        {loan.avatar}
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${avatarColors[i % avatarColors.length]}`}>
+                        {initials}
                       </div>
-                      <p className="text-sm font-semibold text-navy-900">
-                        {loan.name}
-                      </p>
+                      <p className="text-sm font-semibold text-navy-900">{memberName}</p>
                     </div>
                   </td>
-
-                  {/* Loan Amount */}
                   <td className="px-4 py-5 text-center">
-                    <p className="text-sm text-navy-900">{loan.loanAmount}</p>
+                    <p className="text-sm text-navy-900">₦{amount.toLocaleString()}</p>
                   </td>
-
-                  {/* Amount Overdue */}
                   <td className="px-4 py-5 text-center">
-                    <p className="text-sm font-semibold text-red-500">
-                      x {loan.amountOverdue.replace("₦ ", "")}
-                    </p>
+                    <p className="text-sm font-semibold text-red-500">₦{monthlyPmt.toLocaleString()}</p>
                   </td>
-
-                  {/* Days Overdue */}
                   <td className="px-4 py-5 text-center">
-                    <span
-                      className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${loan.daysBadgeColor}`}
-                    >
-                      {loan.daysOverdue} Days
+                    <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-600">
+                      Disbursed
                     </span>
                   </td>
-
-                  {/* Last Payment */}
                   <td className="px-4 py-5">
-                    <p className="text-sm text-gray-600">{loan.lastPayment}</p>
+                    <p className="text-sm text-gray-600">
+                      {loan.disbursement_date ? new Date(loan.disbursement_date).toLocaleDateString() : "—"}
+                    </p>
                   </td>
-
-                  {/* Actions */}
                   <td className="px-4 py-5">
                     <div className="flex items-center justify-center gap-1">
-                      <button
-                        title="Send Reminder"
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
+                      <button title="Send Reminder" className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <Mail className="w-4 h-4" />
                       </button>
-                      <button
-                        title="Schedule"
-                        className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                      >
-                        <MonitorSmartphone className="w-4 h-4" />
-                      </button>
-                      <Link
-                        title="View"
-                        to={`/loans/${encodeURIComponent(loan.id)}`}
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
+                      <Link title="View" to={`/loans/${loan.id}`} className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <Eye className="w-4 h-4" />
                       </Link>
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

@@ -15,7 +15,6 @@ import AddBranchPage from "./components/AddBranchPage";
 import BranchDetailPage from "./components/BranchDetailPage";
 import MembersPage from "./components/MembersPage";
 import AddCooperativeMemberPage from "./components/AddCooperativeMemberPage";
-import AddExternalCustomerPage from "./components/AddExternalCustomerPage";
 import MemberDetailPage from "./components/MemberDetailPage";
 import GroupsPage from "./components/GroupsPage";
 import CreateGroupPage from "./components/CreateGroupPage";
@@ -49,10 +48,16 @@ import LeaveRequestsPage from "./components/LeaveRequestsPage";
 import SalaryStructurePage from "./components/SalaryStructurePage";
 import LeaveRequestFormPage from "./components/LeaveRequestFormPage";
 import AttendanceLogPage from "./components/AttendanceLogPage";
+import RecordAttendancePage from "./components/RecordAttendancePage";
+import CooperativeLoanRequestPage from "./components/CooperativeLoanRequestPage";
+import WeeklyTrackingPage from "./components/WeeklyTrackingPage";
+import RecordWithdrawalPage from "./components/RecordWithdrawalPage";
+import CooperativeDataSheetPage from "./components/CooperativeDataSheetPage";
 import MessagesPage from "./components/MessagesPage";
 import BulkSMSPage from "./components/BulkSMSPage";
 import ReportsPage from "./components/ReportsPage";
 import AccessControlPage from "./components/AccessControlPage";
+import UserApprovalPage from "./components/UserApprovalPage";
 import AuditLogPage from "./components/AuditLogPage";
 import GeneralSettingsPage from "./components/GeneralSettingsPage";
 import NotificationSettingsPage from "./components/NotificationSettingsPage";
@@ -84,7 +89,6 @@ function App() {
               {/* Members */}
               <Route path="/members" element={<ProtectedRoute requiredPermissions={["members.view"]}><MembersPage /></ProtectedRoute>} />
               <Route path="/members/add-cooperative" element={<ProtectedRoute requiredPermissions={["members.add"]}><AddCooperativeMemberPage /></ProtectedRoute>} />
-              <Route path="/members/add-external" element={<ProtectedRoute requiredPermissions={["members.add"]}><AddExternalCustomerPage /></ProtectedRoute>} />
               <Route path="/members/:id" element={<ProtectedRoute requiredPermissions={["members.view"]}><MemberDetailPage /></ProtectedRoute>} />
 
               {/* Groups */}
@@ -98,10 +102,13 @@ function App() {
               <Route path="/savings/bulk-upload" element={<ProtectedRoute requiredPermissions={["savings.bulk_upload"]}><BulkDepositUploadPage /></ProtectedRoute>} />
               <Route path="/savings/transactions" element={<ProtectedRoute requiredPermissions={["savings.transactions"]}><SavingsTransactionsPage /></ProtectedRoute>} />
               <Route path="/savings/statement" element={<ProtectedRoute requiredPermissions={["savings.statement"]}><SavingsStatementPage /></ProtectedRoute>} />
+              <Route path="/savings/withdrawal" element={<ProtectedRoute requiredPermissions={["savings.withdrawal"]}><RecordWithdrawalPage /></ProtectedRoute>} />
+              <Route path="/savings/data-sheet" element={<ProtectedRoute requiredPermissions={["savings.data_sheet"]}><CooperativeDataSheetPage /></ProtectedRoute>} />
 
               {/* Loans */}
               <Route path="/loans" element={<ProtectedRoute requiredPermissions={["loans.view"]}><LoanApplicationsPage /></ProtectedRoute>} />
               <Route path="/loans/new" element={<ProtectedRoute requiredPermissions={["loans.create"]}><NewLoanApplicationPage /></ProtectedRoute>} />
+              <Route path="/loans/cooperative-request" element={<ProtectedRoute requiredPermissions={["loans.create"]}><CooperativeLoanRequestPage /></ProtectedRoute>} />
               <Route path="/loans/:id" element={<ProtectedRoute requiredPermissions={["loans.view"]}><LoanApplicationDetailPage /></ProtectedRoute>} />
               <Route path="/loans/:id/review" element={<ProtectedRoute requiredPermissions={["loans.approve"]}><LoanApprovalReviewPage /></ProtectedRoute>} />
               <Route path="/loans/active" element={<ProtectedRoute requiredPermissions={["loans.view"]}><ActiveLoansPage /></ProtectedRoute>} />
@@ -109,6 +116,7 @@ function App() {
               <Route path="/loans/:id/repayment" element={<ProtectedRoute requiredPermissions={["loans.repayments"]}><LoanRepaymentSchedulePage /></ProtectedRoute>} />
               <Route path="/loans/repayments" element={<ProtectedRoute requiredPermissions={["loans.repayments"]}><AllLoanRepaymentsPage /></ProtectedRoute>} />
               <Route path="/loans/record-repayment" element={<ProtectedRoute requiredPermissions={["loans.record_repayment"]}><RecordLoanRepaymentPage /></ProtectedRoute>} />
+              <Route path="/loans/weekly-tracking" element={<ProtectedRoute requiredPermissions={["loans.weekly_tracking"]}><WeeklyTrackingPage /></ProtectedRoute>} />
 
               {/* Finance */}
               <Route path="/finance" element={<ProtectedRoute requiredPermissions={["finance.view"]}><FinanceDashboardPage /></ProtectedRoute>} />
@@ -128,6 +136,7 @@ function App() {
               <Route path="/hr/salary-structure" element={<ProtectedRoute requiredPermissions={["hr.salary_structure"]}><SalaryStructurePage /></ProtectedRoute>} />
               <Route path="/hr/leave-requests/new" element={<ProtectedRoute requiredPermissions={["hr.leave_requests"]}><LeaveRequestFormPage /></ProtectedRoute>} />
               <Route path="/hr/attendance" element={<ProtectedRoute requiredPermissions={["hr.attendance"]}><AttendanceLogPage /></ProtectedRoute>} />
+              <Route path="/hr/attendance/record" element={<ProtectedRoute requiredPermissions={["hr.attendance"]}><RecordAttendancePage /></ProtectedRoute>} />
 
               {/* Branches */}
               <Route path="/branches" element={<ProtectedRoute requiredPermissions={["branches.view"]}><BranchesPage /></ProtectedRoute>} />
@@ -143,6 +152,7 @@ function App() {
 
               {/* Security */}
               <Route path="/security/access" element={<ProtectedRoute requiredPermissions={["security.access_control"]}><AccessControlPage /></ProtectedRoute>} />
+              <Route path="/security/user-approval" element={<ProtectedRoute requiredPermissions={["security.access_control"]}><UserApprovalPage /></ProtectedRoute>} />
               <Route path="/security/audit" element={<ProtectedRoute requiredPermissions={["security.audit_log"]}><AuditLogPage /></ProtectedRoute>} />
 
               {/* Settings */}

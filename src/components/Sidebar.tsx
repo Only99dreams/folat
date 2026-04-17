@@ -43,8 +43,7 @@ const operations: NavItem[] = [
     permission: "members.view",
     children: [
       { label: "All Members", path: "/members", permission: "members.view" },
-      { label: "Add Cooperative", path: "/members/add-cooperative", permission: "members.add" },
-      { label: "Add External", path: "/members/add-external", permission: "members.add" },
+      { label: "Add Member", path: "/members/add-cooperative", permission: "members.add" },
     ],
   },
   {
@@ -57,6 +56,8 @@ const operations: NavItem[] = [
       { label: "Bulk Upload", path: "/savings/bulk-upload", permission: "savings.bulk_upload" },
       { label: "Transactions", path: "/savings/transactions", permission: "savings.transactions" },
       { label: "Statement", path: "/savings/statement", permission: "savings.statement" },
+      { label: "Record Withdrawal", path: "/savings/withdrawal", permission: "savings.withdrawal" },
+      { label: "Data Sheet", path: "/savings/data-sheet", permission: "savings.data_sheet" },
     ],
   },
   {
@@ -66,10 +67,12 @@ const operations: NavItem[] = [
     children: [
       { label: "Applications", path: "/loans", permission: "loans.view" },
       { label: "New Application", path: "/loans/new", permission: "loans.create" },
+      { label: "Cooperative Loan", path: "/loans/cooperative-request", permission: "loans.create" },
       { label: "Active Loans", path: "/loans/active", permission: "loans.view" },
       { label: "Overdue Loans", path: "/loans/overdue", permission: "loans.view" },
       { label: "Repayments", path: "/loans/repayments", permission: "loans.repayments" },
       { label: "Record Repayment", path: "/loans/record-repayment", permission: "loans.record_repayment" },
+      { label: "Weekly Tracking", path: "/loans/weekly-tracking", permission: "loans.weekly_tracking" },
     ],
   },
   {
@@ -95,6 +98,7 @@ const management: NavItem[] = [
       { label: "Leave Requests", path: "/hr/leave-requests", permission: "hr.leave_requests" },
       { label: "Salary Structure", path: "/hr/salary-structure", permission: "hr.salary_structure" },
       { label: "Attendance Log", path: "/hr/attendance", permission: "hr.attendance" },
+      { label: "Record Attendance", path: "/hr/attendance/record", permission: "hr.attendance" },
     ],
   },
   {
@@ -137,6 +141,7 @@ const system: NavItem[] = [
     permission: "security.access_control",
     children: [
       { label: "Access Control", path: "/security/access", permission: "security.access_control" },
+      { label: "User Approval", path: "/security/user-approval", permission: "security.access_control" },
       { label: "Audit Log", path: "/security/audit", permission: "security.audit_log" },
     ],
   },

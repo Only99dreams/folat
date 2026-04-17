@@ -54,6 +54,10 @@ export default function AddExternalCustomerPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!firstName || !lastName || !phone) {
+      setError("Please fill in required fields: First Name, Last Name, Phone.");
+      return;
+    }
     setSubmitting(true);
     try {
       const memberId = await generateMemberId();
@@ -61,26 +65,29 @@ export default function AddExternalCustomerPage() {
         member_id: memberId,
         first_name: firstName,
         last_name: lastName,
-        email: email || null,
+        email: email || "",
         phone,
         date_of_birth: dob || null,
-        gender: gender || null,
-        address,
-        employer: employer || null,
+        gender: gender || "",
+        address: address || "",
+        employer: employer || "",
         member_type: "external",
-        national_id: nationalId || null,
-        monthly_income: monthlyIncome ? parseFloat(monthlyIncome) : null,
-        guarantor_name: guarantorName || null,
-        guarantor_phone: guarantorPhone || null,
-        guarantor_relationship: guarantorRelationship || null,
+        national_id: nationalId || "",
+        monthly_income: monthlyIncome ? parseFloat(monthlyIncome) : 0,
+        employment_status: employmentStatus || "",
+        credit_score: creditScore,
+        guarantor_name: guarantorName || "",
+        guarantor_phone: guarantorPhone || "",
+        guarantor_relationship: guarantorRelationship || "",
         created_by: user?.id,
         status: "active",
       });
       navigate("/members");
     } catch (err: any) {
       setError(err.message || "Failed to add customer");
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   const handleFileDrop = (e: React.DragEvent) => {

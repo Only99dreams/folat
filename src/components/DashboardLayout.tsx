@@ -1,14 +1,63 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
-import { Bell, Mail, Menu, Search, LogOut } from "lucide-react";
+import { Bell, Mail, Menu, Search, LogOut, Check, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../auth/useAuth";
+import { fetchNotifications, fetchUnreadNotificationCount, markNotificationRead, markAllNotificationsRead } from "../lib/db";
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+
+  // Notification state
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  const loadNotifications = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const [notifs, count] = await Promise.all([
+        fetchNotifications(user.id),
+        fetchUnreadNotificationCount(user.id),
+      ]);
+      setNotifications(notifs);
+      setUnreadCount(count);
+    } catch {}
+  }, [user?.id]);
+
+  useEffect(() => { loadNotifications(); }, [loadNotifications]);
+
+  // Poll every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(loadNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [loadNotifications]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const handleMarkRead = async (id: string) => {
+    await markNotificationRead(id);
+    loadNotifications();
+  };
+
+  const handleMarkAllRead = async () => {
+    if (!user?.id) return;
+    await markAllNotificationsRead(user.id);
+    loadNotifications();
+  };
 
   const handleLogout = () => {
     logout();
@@ -53,10 +102,82 @@ export default function DashboardLayout() {
               <button className="sm:hidden p-2 text-gray-400 hover:text-navy-900 transition-colors">
                 <Search className="w-5 h-5" />
               </button>
-              <button className="relative p-2 text-gray-400 hover:text-navy-900 transition-colors">
-                <Bell className="w-5 h-5" />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
-              </button>
+              <div ref={notifRef} className="relative">
+                <button
+                  onClick={() => { setNotifOpen(!notifOpen); if (!notifOpen) loadNotifications(); }}
+                  className="relative p-2 text-gray-400 hover:text-navy-900 transition-colors"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold text-white bg-red-500 rounded-full">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Notification dropdown */}
+                {notifOpen && (
+                  <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                      <h3 className="text-sm font-bold text-navy-900">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <button
+                          onClick={handleMarkAllRead}
+                          className="text-[11px] font-medium text-green-600 hover:underline"
+                        >
+                          Mark all as read
+                        </button>
+                      )}
+                    </div>
+                    <div className="max-h-80 overflow-y-auto divide-y divide-gray-50">
+                      {notifications.length === 0 ? (
+                        <div className="px-4 py-8 text-center">
+                          <Bell className="w-8 h-8 text-gray-200 mx-auto mb-2" />
+                          <p className="text-sm text-gray-400">No notifications yet.</p>
+                        </div>
+                      ) : notifications.slice(0, 20).map((n) => (
+                        <div
+                          key={n.id}
+                          className={`px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors ${!n.is_read ? "bg-blue-50/40" : ""}`}
+                          onClick={() => {
+                            if (!n.is_read) handleMarkRead(n.id);
+                            if (n.link) { navigate(n.link); setNotifOpen(false); }
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-0.5 w-2 h-2 rounded-full shrink-0 ${
+                              n.type === "success" ? "bg-green-500" :
+                              n.type === "warning" ? "bg-amber-500" :
+                              n.type === "error" ? "bg-red-500" :
+                              "bg-blue-500"
+                            }`} />
+                            <div className="min-w-0 flex-1">
+                              <p className={`text-sm ${!n.is_read ? "font-semibold text-navy-900" : "text-gray-700"}`}>
+                                {n.title}
+                              </p>
+                              <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{n.body}</p>
+                              <p className="text-[10px] text-gray-300 mt-1">
+                                {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    {notifications.length > 0 && (
+                      <div className="border-t border-gray-100 px-4 py-2.5 text-center">
+                        <Link
+                          to="/settings/notifications"
+                          onClick={() => setNotifOpen(false)}
+                          className="text-xs font-medium text-navy-900 hover:underline"
+                        >
+                          Notification Settings
+                        </Link>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
               <button className="relative p-2 text-gray-400 hover:text-navy-900 transition-colors hidden sm:block">
                 <Mail className="w-5 h-5" />
               </button>

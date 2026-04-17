@@ -10,8 +10,11 @@ import {
   Users,
   Clock,
   Loader2,
+  Check,
+  AlertCircle,
 } from "lucide-react";
-import { fetchLoanApplications } from "../lib/db";
+import { fetchLoanApplications, sendOverdueReminders, sendSMS, fetchOverdueScheduleItems } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 const avatarColors = [
   "bg-green-600 text-white",
@@ -23,22 +26,59 @@ const avatarColors = [
 ];
 
 export default function OverdueLoansPage() {
+  const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState(1);
   const [loans, setLoans] = useState<any[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [sendingBulk, setSendingBulk] = useState(false);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState("");
+  const [overdueCount, setOverdueCount] = useState(0);
   const perPage = 10;
   const totalPages = Math.max(1, Math.ceil(totalEntries / perPage));
 
   useEffect(() => {
     setLoading(true);
-    // Fetch disbursed loans — in a real app we'd have an "overdue" status or filter by schedule
-    fetchLoanApplications({ status: "disbursed", page: currentPage, pageSize: perPage })
-      .then(({ data, count }) => {
-        setLoans(data);
-        setTotalEntries(count);
-      }).catch(() => {}).finally(() => setLoading(false));
+    Promise.all([
+      fetchLoanApplications({ status: "disbursed", page: currentPage, pageSize: perPage }),
+      fetchOverdueScheduleItems().catch(() => []),
+    ]).then(([{ data, count }, overdueItems]) => {
+      setLoans(data);
+      setTotalEntries(count);
+      setOverdueCount(Array.isArray(overdueItems) ? overdueItems.length : 0);
+    }).catch(() => {}).finally(() => setLoading(false));
   }, [currentPage]);
+
+  const handleBulkReminders = async () => {
+    if (!user?.id) return;
+    setSendingBulk(true);
+    setBulkResult("");
+    try {
+      const result = await sendOverdueReminders(user.id);
+      setBulkResult(`SMS reminders sent to ${result.sent} of ${result.total ?? result.sent} overdue members.`);
+    } catch (err: any) {
+      setBulkResult("Failed to send reminders: " + (err.message || "Unknown error"));
+    }
+    setSendingBulk(false);
+    setTimeout(() => setBulkResult(""), 5000);
+  };
+
+  const handleSendReminder = async (loan: any) => {
+    if (!user?.id) return;
+    const phone = loan.member?.phone;
+    if (!phone) return;
+    setSendingId(loan.id);
+    try {
+      const memberName = `${loan.member?.first_name ?? ""} ${loan.member?.last_name ?? ""}`.trim();
+      const amount = Number(loan.amount_approved ?? loan.amount_requested ?? 0);
+      const message = `Dear ${memberName}, your loan ${loan.loan_id} of NGN ${amount.toLocaleString()} is overdue. Please make payment to avoid penalties. - FOLAT`;
+      await sendSMS({ sent_by: user.id, recipients: [phone], message });
+    } catch (err) {
+      console.error("Failed to send reminder:", err);
+    }
+    setSendingId(null);
+  };
 
   return (
     <div className="space-y-6">
@@ -55,12 +95,24 @@ export default function OverdueLoansPage() {
             <Download className="w-4 h-4" />
             Export Report
           </button>
-          <button className="flex items-center gap-2 px-5 py-2.5 bg-red-500 text-white rounded-xl text-sm font-semibold hover:bg-red-600 transition-colors">
-            <Bell className="w-4 h-4" />
-            Bulk Reminders
+          <button
+            onClick={handleBulkReminders}
+            disabled={sendingBulk}
+            className="flex items-center gap-2 px-5 py-2.5 bg-red-500 text-white rounded-xl text-sm font-semibold hover:bg-red-600 transition-colors disabled:opacity-50"
+          >
+            {sendingBulk ? <Loader2 className="w-4 h-4 animate-spin" /> : <Bell className="w-4 h-4" />}
+            {sendingBulk ? "Sending..." : "Bulk Reminders"}
           </button>
         </div>
       </div>
+
+      {/* Bulk result message */}
+      {bulkResult && (
+        <div className={`flex items-center gap-2 rounded-xl px-4 py-3 ${bulkResult.includes("Failed") ? "bg-red-50 border border-red-200" : "bg-green-50 border border-green-200"}`}>
+          {bulkResult.includes("Failed") ? <AlertCircle className="w-4 h-4 text-red-500 shrink-0" /> : <Check className="w-4 h-4 text-green-500 shrink-0" />}
+          <p className={`text-sm ${bulkResult.includes("Failed") ? "text-red-600" : "text-green-600"}`}>{bulkResult}</p>
+        </div>
+      )}
 
       {/* ─── Stat Cards ─── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -210,8 +262,13 @@ export default function OverdueLoansPage() {
                   </td>
                   <td className="px-4 py-5">
                     <div className="flex items-center justify-center gap-1">
-                      <button title="Send Reminder" className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
-                        <Mail className="w-4 h-4" />
+                      <button
+                        title="Send Reminder SMS"
+                        onClick={() => handleSendReminder(loan)}
+                        disabled={sendingId === loan.id}
+                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {sendingId === loan.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
                       </button>
                       <Link title="View" to={`/loans/${loan.id}`} className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <Eye className="w-4 h-4" />

@@ -70,25 +70,28 @@ export default function AddCooperativeMemberPage() {
     }
     setSubmitting(true);
     try {
+      // Generate a fresh member ID at submit time to avoid duplicates on retry
+      const freshMemberId = await generateMemberId();
+      setMemberId(freshMemberId);
       await createMember({
-        member_id: memberId,
+        member_id: freshMemberId,
         member_type: "cooperative",
         first_name: firstName,
         last_name: lastName,
-        gender,
+        gender: gender || "",
         date_of_birth: dob || null,
         phone,
-        email,
-        address,
-        national_id: nationalId,
+        email: email || "",
+        address: address || "",
+        national_id: nationalId || "",
         branch_id: branch || null,
         group_id: group || null,
         join_date: joinDate,
         initial_deposit: parseFloat(initialDeposit) || 0,
-        contribution_type: contributionType,
-        nok_name: kinName,
-        nok_phone: kinPhone,
-        nok_relationship: kinRelationship,
+        contribution_type: contributionType || "monthly",
+        nok_name: kinName || "",
+        nok_phone: kinPhone || "",
+        nok_relationship: kinRelationship || "",
         created_by: user?.id,
         status: "active",
       });

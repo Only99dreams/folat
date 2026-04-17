@@ -22,8 +22,8 @@ export interface User {
 /* ─── Permission Keys ─── */
 export type Permission =
   | "members.view" | "members.add" | "members.edit" | "members.delete"
-  | "savings.view" | "savings.deposit" | "savings.bulk_upload" | "savings.transactions" | "savings.statement"
-  | "loans.view" | "loans.create" | "loans.approve" | "loans.disburse" | "loans.repayments" | "loans.record_repayment"
+  | "savings.view" | "savings.deposit" | "savings.bulk_upload" | "savings.transactions" | "savings.statement" | "savings.withdrawal" | "savings.data_sheet"
+  | "loans.view" | "loans.create" | "loans.approve" | "loans.disburse" | "loans.repayments" | "loans.record_repayment" | "loans.weekly_tracking"
   | "groups.view" | "groups.create"
   | "finance.view" | "finance.add_income" | "finance.add_expense" | "finance.ledger" | "finance.fund_requests" | "finance.approve_requests"
   | "hr.view" | "hr.staff_list" | "hr.add_staff" | "hr.leave_requests" | "hr.salary_structure" | "hr.attendance"
@@ -37,8 +37,8 @@ export type Permission =
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   super_admin: [
     "members.view", "members.add", "members.edit", "members.delete",
-    "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement",
-    "loans.view", "loans.create", "loans.approve", "loans.disburse", "loans.repayments", "loans.record_repayment",
+    "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
+    "loans.view", "loans.create", "loans.approve", "loans.disburse", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
     "groups.view", "groups.create",
     "finance.view", "finance.add_income", "finance.add_expense", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
     "hr.view", "hr.staff_list", "hr.add_staff", "hr.leave_requests", "hr.salary_structure", "hr.attendance",
@@ -50,8 +50,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   ],
   branch_manager: [
     "members.view", "members.add", "members.edit",
-    "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement",
-    "loans.view", "loans.create", "loans.approve", "loans.repayments", "loans.record_repayment",
+    "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
+    "loans.view", "loans.create", "loans.approve", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
     "groups.view", "groups.create",
     "finance.view", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
     "hr.view", "hr.staff_list", "hr.leave_requests", "hr.attendance",
@@ -61,16 +61,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   ],
   finance_officer: [
     "members.view",
-    "savings.view", "savings.deposit", "savings.transactions", "savings.statement",
+    "savings.view", "savings.deposit", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
     "loans.view", "loans.disburse", "loans.repayments",
     "finance.view", "finance.add_income", "finance.add_expense", "finance.ledger", "finance.fund_requests",
     "reports.view",
   ],
   loan_officer: [
-    "members.view",
     "savings.view", "savings.transactions",
-    "loans.view", "loans.create", "loans.repayments", "loans.record_repayment",
+    "loans.view", "loans.create", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
     "groups.view",
+    "finance.view", "finance.ledger",
     "reports.view",
   ],
   front_desk: [

@@ -90,7 +90,7 @@ export async function fetchMembers(filters?: {
 }) {
   let query = supabase
     .from("members")
-    .select("*, branch:branches(name), group:groups(name)", { count: "exact" })
+    .select("*, branch:branches(name), group:groups!group_id(name)", { count: "exact" })
     .order("created_at", { ascending: false });
 
   if (filters?.branch_id) query = query.eq("branch_id", filters.branch_id);
@@ -113,7 +113,7 @@ export async function fetchMembers(filters?: {
 export async function fetchMember(id: string) {
   const { data, error } = await supabase
     .from("members")
-    .select("*, branch:branches(name, code), group:groups(name, group_code)")
+    .select("*, branch:branches(name, code), group:groups!group_id(name, group_code)")
     .eq("id", id)
     .single();
   if (error) throw error;
@@ -134,33 +134,43 @@ export async function generateMemberId() {
 export async function createMember(member: Record<string, unknown>) {
   const { data, error } = await supabase.from("members").insert(member).select().single();
   if (error) throw error;
-  // Auto-create savings account
-  const accNum = `SAV-${(member.member_id as string).replace("FOL-", "")}`;
-  await supabase.from("savings_accounts").insert({
-    member_id: data.id,
-    account_number: accNum,
-    balance: (member.initial_deposit as number) ?? 0,
-  });
-  // Record initial deposit if > 0
-  if (member.initial_deposit && (member.initial_deposit as number) > 0) {
-    const { data: acc } = await supabase.from("savings_accounts")
-      .select("id").eq("member_id", data.id).single();
-    if (acc) {
-      const txnId = `TXN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 9000) + 1000}`;
-      await supabase.from("savings_transactions").insert({
-        transaction_id: txnId,
-        account_id: acc.id,
-        member_id: data.id,
-        type: "deposit",
-        amount: member.initial_deposit,
-        balance_after: member.initial_deposit,
-        payment_method: "cash",
-        notes: "Initial deposit on registration",
-        recorded_by: member.created_by,
-        branch_id: member.branch_id ?? null,
-      });
+
+  // Auto-create savings account (non-blocking — don't let this fail the member creation)
+  try {
+    const accNum = `SAV-${(member.member_id as string).replace("FOL-", "")}`;
+    const { error: savingsError } = await supabase.from("savings_accounts").insert({
+      member_id: data.id,
+      account_number: accNum,
+      balance: (member.initial_deposit as number) ?? 0,
+    });
+    if (savingsError) {
+      console.error("Failed to create savings account:", savingsError.message);
     }
+
+    // Record initial deposit if > 0
+    if (!savingsError && member.initial_deposit && (member.initial_deposit as number) > 0) {
+      const { data: acc } = await supabase.from("savings_accounts")
+        .select("id").eq("member_id", data.id).single();
+      if (acc) {
+        const txnId = `TXN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(Math.random() * 9000) + 1000}`;
+        await supabase.from("savings_transactions").insert({
+          transaction_id: txnId,
+          account_id: acc.id,
+          member_id: data.id,
+          type: "deposit",
+          amount: member.initial_deposit,
+          balance_after: member.initial_deposit,
+          payment_method: "cash",
+          notes: "Initial deposit on registration",
+          recorded_by: member.created_by,
+          branch_id: member.branch_id ?? null,
+        });
+      }
+    }
+  } catch (savingsErr) {
+    console.error("Savings account setup error (member was created):", savingsErr);
   }
+
   await logAudit("create", "member", data.id, { member_id: member.member_id });
   return data;
 }
@@ -228,6 +238,25 @@ export async function removeGroupMember(groupId: string, memberId: string) {
   const { error } = await supabase.from("group_members")
     .delete().eq("group_id", groupId).eq("member_id", memberId);
   if (error) throw error;
+}
+
+export async function updateGroup(id: string, updates: Record<string, unknown>) {
+  const { data, error } = await supabase
+    .from("groups").update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", id).select().single();
+  if (error) throw error;
+  await logAudit("update", "group", id, updates);
+  return data;
+}
+
+export async function checkIsGroupLeader(memberId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("groups")
+    .select("id")
+    .eq("leader_id", memberId)
+    .limit(1);
+  if (error) return false;
+  return (data?.length ?? 0) > 0;
 }
 
 // ═══════════════════════════════════════════
@@ -1060,6 +1089,146 @@ export async function updateProfile(profileId: string, updates: Record<string, u
 }
 
 // ═══════════════════════════════════════════
+// USER APPROVAL
+// ═══════════════════════════════════════════
+export async function fetchPendingUsers() {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("role", "unassigned")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function approveUser(profileId: string, role: string, branchId?: string) {
+  const updates: Record<string, unknown> = { role, updated_at: new Date().toISOString() };
+  if (branchId) updates.branch = branchId;
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(updates)
+    .eq("id", profileId)
+    .select()
+    .single();
+  if (error) throw error;
+  await logAudit("approve_user", "profile", profileId, { role });
+  return data;
+}
+
+export async function rejectUser(profileId: string) {
+  const { error } = await supabase
+    .from("profiles")
+    .delete()
+    .eq("id", profileId)
+    .eq("role", "unassigned");
+  if (error) throw error;
+  await logAudit("reject_user", "profile", profileId, {});
+}
+
+// ═══════════════════════════════════════════
+// IN-APP NOTIFICATIONS
+// ═══════════════════════════════════════════
+export async function createNotification(params: {
+  user_id: string; title: string; body: string; type?: string; link?: string;
+}) {
+  const { error } = await supabase.from("notifications").insert({
+    user_id: params.user_id,
+    title: params.title,
+    body: params.body,
+    type: params.type ?? "info",
+    link: params.link ?? "",
+  });
+  if (error) throw error;
+}
+
+export async function fetchNotifications(userId: string) {
+  const { data, error } = await supabase
+    .from("notifications")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchUnreadNotificationCount(userId: string) {
+  const { count, error } = await supabase
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .eq("is_read", false);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+export async function markNotificationRead(id: string) {
+  await supabase.from("notifications").update({ is_read: true }).eq("id", id);
+}
+
+export async function markAllNotificationsRead(userId: string) {
+  await supabase.from("notifications").update({ is_read: true }).eq("user_id", userId).eq("is_read", false);
+}
+
+// ═══════════════════════════════════════════
+// OVERDUE LOAN DETECTION & SMS
+// ═══════════════════════════════════════════
+export async function fetchOverdueScheduleItems() {
+  const today = new Date().toISOString().split("T")[0];
+  const { data, error } = await supabase
+    .from("loan_schedule")
+    .select("*, loan:loan_applications(id, loan_id, member_id, member:members(first_name, last_name, phone))")
+    .in("status", ["pending", "partial"])
+    .lt("due_date", today)
+    .order("due_date", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function markScheduleOverdue() {
+  const today = new Date().toISOString().split("T")[0];
+  const { error } = await supabase
+    .from("loan_schedule")
+    .update({ status: "overdue" })
+    .in("status", ["pending", "partial"])
+    .lt("due_date", today);
+  if (error) throw error;
+}
+
+export async function sendOverdueReminders(sentBy: string) {
+  const overdueItems = await fetchOverdueScheduleItems();
+  if (overdueItems.length === 0) return { sent: 0 };
+
+  // Mark overdue first
+  await markScheduleOverdue();
+
+  // Group by member to avoid duplicate SMS
+  const memberMap = new Map<string, { phone: string; name: string; totalDue: number; count: number }>();
+  for (const item of overdueItems) {
+    const member = item.loan?.member;
+    if (!member?.phone) continue;
+    const memberId = item.loan?.member_id;
+    const existing = memberMap.get(memberId) ?? { phone: member.phone, name: `${member.first_name} ${member.last_name}`, totalDue: 0, count: 0 };
+    existing.totalDue += Number(item.total_due) - Number(item.amount_paid);
+    existing.count += 1;
+    memberMap.set(memberId, existing);
+  }
+
+  let sent = 0;
+  for (const [, info] of memberMap) {
+    const message = `Dear ${info.name}, you have ${info.count} overdue loan installment(s) totalling NGN ${info.totalDue.toLocaleString()}. Please make payment to avoid penalties. - FOLAT`;
+    try {
+      await sendSMS({ sent_by: sentBy, recipients: [info.phone], message });
+      sent++;
+    } catch (err) {
+      console.error("Failed to send overdue SMS to", info.phone, err);
+    }
+  }
+
+  return { sent, total: memberMap.size };
+}
+
+// ═══════════════════════════════════════════
 // DASHBOARD STATS
 // ═══════════════════════════════════════════
 export async function fetchDashboardStats() {
@@ -1104,4 +1273,133 @@ export async function fetchRecentTransactions(limit = 10) {
     .limit(limit);
   if (error) throw error;
   return data ?? [];
+}
+
+// ═══════════════════════════════════════════
+// WEEKLY PAYMENTS (Booklet-to-Digital Tracking)
+// ═══════════════════════════════════════════
+export async function fetchWeeklyPayments(filters?: {
+  group_id?: string; branch_id?: string; member_id?: string;
+  loan_id?: string; year?: number; week_number?: number;
+  status?: string; page?: number; pageSize?: number;
+}) {
+  let query = supabase
+    .from("weekly_payments")
+    .select("*, member:members(first_name, last_name, member_id, phone), group:groups(name, group_code), branch:branches(name), loan:loan_applications(loan_id, loan_type), recorder:profiles!weekly_payments_recorded_by_fkey(full_name)", { count: "exact" })
+    .order("week_start_date", { ascending: false });
+
+  if (filters?.group_id) query = query.eq("group_id", filters.group_id);
+  if (filters?.branch_id) query = query.eq("branch_id", filters.branch_id);
+  if (filters?.member_id) query = query.eq("member_id", filters.member_id);
+  if (filters?.loan_id) query = query.eq("loan_id", filters.loan_id);
+  if (filters?.year) query = query.eq("year", filters.year);
+  if (filters?.week_number) query = query.eq("week_number", filters.week_number);
+  if (filters?.status) query = query.eq("status", filters.status);
+
+  const page = filters?.page ?? 1;
+  const pageSize = filters?.pageSize ?? 50;
+  query = query.range((page - 1) * pageSize, page * pageSize - 1);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+  return { data: data ?? [], count: count ?? 0 };
+}
+
+export async function recordWeeklyPayment(payment: {
+  member_id: string; group_id?: string; branch_id?: string;
+  loan_id?: string; week_number: number; week_start_date: string;
+  year: number; amount_due: number; amount_paid: number;
+  payment_method?: string; payment_date?: string;
+  booklet_reference?: string; notes?: string; recorded_by: string;
+}) {
+  const outstanding = payment.amount_due - payment.amount_paid;
+  const status = payment.amount_paid >= payment.amount_due ? "paid"
+    : payment.amount_paid > 0 ? "partial"
+    : "pending";
+
+  const { data, error } = await supabase.from("weekly_payments").upsert({
+    member_id: payment.member_id,
+    group_id: payment.group_id ?? null,
+    branch_id: payment.branch_id ?? null,
+    loan_id: payment.loan_id ?? null,
+    week_number: payment.week_number,
+    week_start_date: payment.week_start_date,
+    year: payment.year,
+    amount_due: payment.amount_due,
+    amount_paid: payment.amount_paid,
+    outstanding: Math.max(outstanding, 0),
+    payment_method: payment.payment_method ?? "cash",
+    payment_date: payment.payment_date ?? null,
+    booklet_reference: payment.booklet_reference ?? "",
+    notes: payment.notes ?? "",
+    status,
+    recorded_by: payment.recorded_by,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "member_id,loan_id,week_start_date" }).select().single();
+  if (error) throw error;
+  await logAudit("record", "weekly_payment", data.id, { member_id: payment.member_id, amount_paid: payment.amount_paid });
+  return data;
+}
+
+export async function fetchGroupWeeklySummary(groupId: string, year: number, month: number) {
+  const startDate = new Date(year, month - 1, 1).toISOString().split("T")[0];
+  const endDate = new Date(year, month, 0).toISOString().split("T")[0];
+
+  const { data, error } = await supabase
+    .from("weekly_payments")
+    .select("*, member:members(first_name, last_name, member_id)")
+    .eq("group_id", groupId)
+    .gte("week_start_date", startDate)
+    .lte("week_start_date", endDate)
+    .order("week_start_date");
+
+  if (error) throw error;
+  return data ?? [];
+}
+
+// ═══════════════════════════════════════════
+// LOAN RULES & REGULATIONS
+// ═══════════════════════════════════════════
+export async function fetchLoanRules(category?: string) {
+  let query = supabase
+    .from("loan_rules")
+    .select("*")
+    .eq("is_active", true)
+    .order("display_order");
+
+  if (category) query = query.eq("category", category);
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createLoanRule(rule: {
+  title: string; content: string; category?: string;
+  display_order?: number; created_by: string;
+}) {
+  const { data, error } = await supabase.from("loan_rules").insert({
+    title: rule.title,
+    content: rule.content,
+    category: rule.category ?? "general",
+    display_order: rule.display_order ?? 0,
+    created_by: rule.created_by,
+  }).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateLoanRule(id: string, updates: Record<string, unknown>) {
+  const { data, error } = await supabase.from("loan_rules")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", id).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteLoanRule(id: string) {
+  const { error } = await supabase.from("loan_rules")
+    .update({ is_active: false, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -11,6 +11,11 @@ import {
   MapPin,
   Users,
   Loader2,
+  Search,
+  X,
+  Crown,
+  UserX,
+  Check,
 } from "lucide-react";
 import {
   AreaChart,
@@ -21,7 +26,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { fetchGroup, fetchGroupMembers } from "../lib/db";
+import { fetchGroup, fetchGroupMembers, fetchMembers, addGroupMember, removeGroupMember, updateGroup } from "../lib/db";
 
 /* ─── Chart Data (placeholder — will be dynamic when backend supports it) ─── */
 const performanceData: { month: string; savings: number; loans: number; repayments: number }[] = [];
@@ -37,22 +42,101 @@ export default function GroupDetailPage() {
   const [loading, setLoading] = useState(true);
   const tabs = ["Overview", "Members", "Savings", "Loans", "Activity"];
 
-  useEffect(() => {
+  /* ── Add Members Modal ── */
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [addingMemberId, setAddingMemberId] = useState<string | null>(null);
+
+  /* ── Set Leader Modal ── */
+  const [showSetLeader, setShowSetLeader] = useState(false);
+  const [settingLeader, setSettingLeader] = useState(false);
+
+  /* ── Remove member ── */
+  const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
     if (!id) return;
-    async function load() {
-      setLoading(true);
-      try {
-        const g = await fetchGroup(id!);
-        setGroup(g);
-        const m = await fetchGroupMembers(id!);
-        setMembers(m);
-      } catch (err) {
-        console.error(err);
-      }
-      setLoading(false);
+    try {
+      const g = await fetchGroup(id);
+      setGroup(g);
+      const m = await fetchGroupMembers(id);
+      setMembers(m);
+    } catch (err) {
+      console.error(err);
     }
-    load();
   }, [id]);
+
+  useEffect(() => {
+    setLoading(true);
+    reload().finally(() => setLoading(false));
+  }, [reload]);
+
+  /* ── Member search for add-member modal ── */
+  const handleMemberSearch = useCallback(async (q: string) => {
+    setMemberSearch(q);
+    if (q.trim().length < 2) { setSearchResults([]); return; }
+    setSearching(true);
+    try {
+      const { data } = await fetchMembers({ search: q });
+      // Filter out already-added members
+      const existingIds = new Set(members.map((gm: any) => gm.member_id));
+      setSearchResults(data.filter((m: any) => !existingIds.has(m.id)));
+    } catch { setSearchResults([]); }
+    setSearching(false);
+  }, [members]);
+
+  const handleAddMember = async (memberId: string) => {
+    if (!id) return;
+    setAddingMemberId(memberId);
+    try {
+      await addGroupMember(id, memberId);
+      await reload();
+      setSearchResults((prev) => prev.filter((m) => m.id !== memberId));
+    } catch (err) {
+      console.error("Failed to add member:", err);
+    }
+    setAddingMemberId(null);
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!id) return;
+    setRemovingMemberId(memberId);
+    try {
+      await removeGroupMember(id, memberId);
+      await reload();
+    } catch (err) {
+      console.error("Failed to remove member:", err);
+    }
+    setRemovingMemberId(null);
+  };
+
+  const handleSetLeader = async (memberId: string) => {
+    if (!id) return;
+    setSettingLeader(true);
+    try {
+      await updateGroup(id, { leader_id: memberId });
+      await reload();
+      setShowSetLeader(false);
+    } catch (err) {
+      console.error("Failed to set leader:", err);
+    }
+    setSettingLeader(false);
+  };
+
+  const handleSetSecretary = async (memberId: string) => {
+    if (!id) return;
+    setSettingLeader(true);
+    try {
+      await updateGroup(id, { secretary_id: memberId });
+      await reload();
+      setShowSetLeader(false);
+    } catch (err) {
+      console.error("Failed to set secretary:", err);
+    }
+    setSettingLeader(false);
+  };
 
   if (loading) {
     return (
@@ -119,7 +203,10 @@ export default function GroupDetailPage() {
               <FileBarChart className="w-3.5 h-3.5" />
               Reports
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors">
+            <button
+              onClick={() => setShowAddMember(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
+            >
               <UserPlus className="w-4 h-4" />
               Add Members
             </button>
@@ -468,7 +555,10 @@ export default function GroupDetailPage() {
                 ))}
               </div>
 
-              <button className="w-full mt-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+              <button
+                onClick={() => setShowSetLeader(true)}
+                className="w-full mt-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors"
+              >
                 Update Committee
               </button>
             </div>
@@ -529,7 +619,16 @@ export default function GroupDetailPage() {
       {/* Placeholder for other tabs */}
       {activeTab === "Members" && (
         <div className="bg-white rounded-xl border border-gray-100 p-6">
-          <h3 className="text-base font-bold text-navy-900 mb-5">Group Members ({members.length})</h3>
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-base font-bold text-navy-900">Group Members ({members.length})</h3>
+            <button
+              onClick={() => setShowAddMember(true)}
+              className="flex items-center gap-1.5 px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold hover:bg-green-700 transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add Member
+            </button>
+          </div>
           {members.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-8">No members in this group yet.</p>
           ) : (
@@ -540,20 +639,72 @@ export default function GroupDetailPage() {
                     <th className="pb-3 font-semibold">Member</th>
                     <th className="pb-3 font-semibold">Member ID</th>
                     <th className="pb-3 font-semibold">Phone</th>
+                    <th className="pb-3 font-semibold">Role</th>
                     <th className="pb-3 font-semibold">Joined Group</th>
+                    <th className="pb-3 font-semibold text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {members.map((gm: any) => (
-                    <tr key={gm.id} className="hover:bg-gray-50">
-                      <td className="py-3 font-medium text-navy-900">
-                        {gm.member?.first_name} {gm.member?.last_name}
-                      </td>
-                      <td className="py-3 text-gray-500">{gm.member?.member_id}</td>
-                      <td className="py-3 text-gray-500">{gm.member?.phone || "—"}</td>
-                      <td className="py-3 text-gray-500">{new Date(gm.joined_at).toLocaleDateString()}</td>
-                    </tr>
-                  ))}
+                  {members.map((gm: any) => {
+                    const isLeader = group.leader_id === gm.member?.id;
+                    const isSecretary = group.secretary_id === gm.member?.id;
+                    return (
+                      <tr key={gm.id} className="hover:bg-gray-50">
+                        <td className="py-3 font-medium text-navy-900">
+                          <div className="flex items-center gap-2">
+                            {gm.member?.first_name} {gm.member?.last_name}
+                            {isLeader && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+                                <Crown className="w-3 h-3" /> Leader
+                              </span>
+                            )}
+                            {isSecretary && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                                Secretary
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 text-gray-500">{gm.member?.member_id}</td>
+                        <td className="py-3 text-gray-500">{gm.member?.phone || "—"}</td>
+                        <td className="py-3">
+                          {isLeader ? (
+                            <span className="text-amber-700 font-semibold text-xs">Leader</span>
+                          ) : isSecretary ? (
+                            <span className="text-blue-700 font-semibold text-xs">Secretary</span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">Member</span>
+                          )}
+                        </td>
+                        <td className="py-3 text-gray-500">{new Date(gm.joined_at).toLocaleDateString()}</td>
+                        <td className="py-3">
+                          <div className="flex items-center justify-center gap-1">
+                            {!isLeader && (
+                              <button
+                                onClick={() => handleSetLeader(gm.member?.id)}
+                                title="Set as Leader"
+                                className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                              >
+                                <Crown className="w-4 h-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleRemoveMember(gm.member?.id)}
+                              disabled={removingMemberId === gm.member?.id}
+                              title="Remove from Group"
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+                            >
+                              {removingMemberId === gm.member?.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <UserX className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -566,6 +717,172 @@ export default function GroupDetailPage() {
           <p className="text-gray-400 text-sm">
             {activeTab} content coming soon.
           </p>
+        </div>
+      )}
+
+      {/* ═══════════ Add Members Modal ═══════════ */}
+      {showAddMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-navy-900">Add Members to Group</h3>
+              <button
+                onClick={() => { setShowAddMember(false); setMemberSearch(""); setSearchResults([]); }}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="px-6 pt-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by name, ID, or phone..."
+                  value={memberSearch}
+                  onChange={(e) => handleMemberSearch(e.target.value)}
+                  autoFocus
+                  className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+                />
+              </div>
+            </div>
+
+            {/* Results */}
+            <div className="px-6 py-4 max-h-72 overflow-y-auto">
+              {searching ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                </div>
+              ) : searchResults.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">
+                  {memberSearch.length >= 2 ? "No matching members found." : "Type at least 2 characters to search."}
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {searchResults.map((m: any) => (
+                    <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
+                      <div>
+                        <p className="text-sm font-semibold text-navy-900">{m.first_name} {m.last_name}</p>
+                        <p className="text-xs text-gray-400">{m.member_id} · {m.phone}</p>
+                      </div>
+                      <button
+                        onClick={() => handleAddMember(m.id)}
+                        disabled={addingMemberId === m.id}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+                      >
+                        {addingMemberId === m.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <UserPlus className="w-3.5 h-3.5" />
+                        )}
+                        Add
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => { setShowAddMember(false); setMemberSearch(""); setSearchResults([]); }}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ Set Leader / Secretary Modal ═══════════ */}
+      {showSetLeader && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-navy-900">Update Group Leadership</h3>
+              <button
+                onClick={() => setShowSetLeader(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-4 max-h-96 overflow-y-auto">
+              {members.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-8">
+                  Add members to the group first before assigning leadership roles.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {members.map((gm: any) => {
+                    const isLeader = group.leader_id === gm.member?.id;
+                    const isSecretary = group.secretary_id === gm.member?.id;
+                    return (
+                      <div key={gm.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:bg-gray-50">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-navy-900 flex items-center justify-center text-white text-xs font-bold">
+                            {gm.member?.first_name?.[0]}{gm.member?.last_name?.[0]}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-navy-900">
+                              {gm.member?.first_name} {gm.member?.last_name}
+                              {isLeader && <span className="ml-2 text-xs text-amber-600 font-semibold">(Leader)</span>}
+                              {isSecretary && <span className="ml-2 text-xs text-blue-600 font-semibold">(Secretary)</span>}
+                            </p>
+                            <p className="text-xs text-gray-400">{gm.member?.member_id}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => handleSetLeader(gm.member?.id)}
+                            disabled={isLeader || settingLeader}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                              isLeader
+                                ? "bg-amber-50 text-amber-700 border border-amber-200 cursor-default"
+                                : "border border-gray-200 text-gray-600 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200"
+                            } disabled:opacity-50`}
+                          >
+                            {isLeader ? <Check className="w-3.5 h-3.5" /> : <Crown className="w-3.5 h-3.5" />}
+                            Leader
+                          </button>
+                          <button
+                            onClick={() => handleSetSecretary(gm.member?.id)}
+                            disabled={isSecretary || settingLeader}
+                            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                              isSecretary
+                                ? "bg-blue-50 text-blue-700 border border-blue-200 cursor-default"
+                                : "border border-gray-200 text-gray-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200"
+                            } disabled:opacity-50`}
+                          >
+                            {isSecretary ? <Check className="w-3.5 h-3.5" /> : null}
+                            Secretary
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+              <button
+                onClick={() => setShowSetLeader(false)}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

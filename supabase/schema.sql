@@ -40,12 +40,15 @@ CREATE TABLE IF NOT EXISTS public.branches (
 
 ALTER TABLE public.branches ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view branches" ON public.branches;
 CREATE POLICY "Authenticated users can view branches" ON public.branches
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Super admin and branch managers can insert branches" ON public.branches;
 CREATE POLICY "Super admin and branch managers can insert branches" ON public.branches
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Super admin and branch managers can update branches" ON public.branches;
 CREATE POLICY "Super admin and branch managers can update branches" ON public.branches
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -98,12 +101,15 @@ CREATE TABLE IF NOT EXISTS public.members (
 
 ALTER TABLE public.members ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view members" ON public.members;
 CREATE POLICY "Authenticated users can view members" ON public.members
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert members" ON public.members;
 CREATE POLICY "Authenticated users can insert members" ON public.members
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can update members" ON public.members;
 CREATE POLICY "Authenticated users can update members" ON public.members
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -129,12 +135,15 @@ CREATE TABLE IF NOT EXISTS public.groups (
 
 ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view groups" ON public.groups;
 CREATE POLICY "Authenticated users can view groups" ON public.groups
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert groups" ON public.groups;
 CREATE POLICY "Authenticated users can insert groups" ON public.groups
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can update groups" ON public.groups;
 CREATE POLICY "Authenticated users can update groups" ON public.groups
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -156,6 +165,7 @@ CREATE TABLE IF NOT EXISTS public.group_members (
 
 ALTER TABLE public.group_members ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can manage group_members" ON public.group_members;
 CREATE POLICY "Authenticated users can manage group_members" ON public.group_members
   FOR ALL USING (auth.role() = 'authenticated');
 
@@ -174,12 +184,15 @@ CREATE TABLE IF NOT EXISTS public.savings_accounts (
 
 ALTER TABLE public.savings_accounts ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view savings_accounts" ON public.savings_accounts;
 CREATE POLICY "Authenticated users can view savings_accounts" ON public.savings_accounts
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert savings_accounts" ON public.savings_accounts;
 CREATE POLICY "Authenticated users can insert savings_accounts" ON public.savings_accounts
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can update savings_accounts" ON public.savings_accounts;
 CREATE POLICY "Authenticated users can update savings_accounts" ON public.savings_accounts
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -201,9 +214,11 @@ CREATE TABLE IF NOT EXISTS public.savings_transactions (
 
 ALTER TABLE public.savings_transactions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view savings_transactions" ON public.savings_transactions;
 CREATE POLICY "Authenticated users can view savings_transactions" ON public.savings_transactions
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert savings_transactions" ON public.savings_transactions;
 CREATE POLICY "Authenticated users can insert savings_transactions" ON public.savings_transactions
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
@@ -247,12 +262,15 @@ CREATE TABLE IF NOT EXISTS public.loan_applications (
 
 ALTER TABLE public.loan_applications ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view loan_applications" ON public.loan_applications;
 CREATE POLICY "Authenticated users can view loan_applications" ON public.loan_applications
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert loan_applications" ON public.loan_applications;
 CREATE POLICY "Authenticated users can insert loan_applications" ON public.loan_applications
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can update loan_applications" ON public.loan_applications;
 CREATE POLICY "Authenticated users can update loan_applications" ON public.loan_applications
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -282,9 +300,11 @@ CREATE TABLE IF NOT EXISTS public.loan_repayments (
 
 ALTER TABLE public.loan_repayments ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view loan_repayments" ON public.loan_repayments;
 CREATE POLICY "Authenticated users can view loan_repayments" ON public.loan_repayments
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert loan_repayments" ON public.loan_repayments;
 CREATE POLICY "Authenticated users can insert loan_repayments" ON public.loan_repayments
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
@@ -307,6 +327,7 @@ CREATE TABLE IF NOT EXISTS public.loan_schedule (
 
 ALTER TABLE public.loan_schedule ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can manage loan_schedule" ON public.loan_schedule;
 CREATE POLICY "Authenticated users can manage loan_schedule" ON public.loan_schedule
   FOR ALL USING (auth.role() = 'authenticated');
 
@@ -334,12 +355,15 @@ CREATE TABLE IF NOT EXISTS public.finance_transactions (
 
 ALTER TABLE public.finance_transactions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view finance_transactions" ON public.finance_transactions;
 CREATE POLICY "Authenticated users can view finance_transactions" ON public.finance_transactions
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert finance_transactions" ON public.finance_transactions;
 CREATE POLICY "Authenticated users can insert finance_transactions" ON public.finance_transactions
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can update finance_transactions" ON public.finance_transactions;
 CREATE POLICY "Authenticated users can update finance_transactions" ON public.finance_transactions
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -366,12 +390,15 @@ CREATE TABLE IF NOT EXISTS public.fund_requests (
 
 ALTER TABLE public.fund_requests ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view fund_requests" ON public.fund_requests;
 CREATE POLICY "Authenticated users can view fund_requests" ON public.fund_requests
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert fund_requests" ON public.fund_requests;
 CREATE POLICY "Authenticated users can insert fund_requests" ON public.fund_requests
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can update fund_requests" ON public.fund_requests;
 CREATE POLICY "Authenticated users can update fund_requests" ON public.fund_requests
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -406,12 +433,15 @@ CREATE TABLE IF NOT EXISTS public.staff (
 
 ALTER TABLE public.staff ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view staff" ON public.staff;
 CREATE POLICY "Authenticated users can view staff" ON public.staff
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert staff" ON public.staff;
 CREATE POLICY "Authenticated users can insert staff" ON public.staff
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can update staff" ON public.staff;
 CREATE POLICY "Authenticated users can update staff" ON public.staff
   FOR UPDATE USING (auth.role() = 'authenticated');
 
@@ -435,6 +465,7 @@ CREATE TABLE IF NOT EXISTS public.leave_requests (
 
 ALTER TABLE public.leave_requests ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can manage leave_requests" ON public.leave_requests;
 CREATE POLICY "Authenticated users can manage leave_requests" ON public.leave_requests
   FOR ALL USING (auth.role() = 'authenticated');
 
@@ -456,6 +487,7 @@ CREATE TABLE IF NOT EXISTS public.attendance (
 
 ALTER TABLE public.attendance ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can manage attendance" ON public.attendance;
 CREATE POLICY "Authenticated users can manage attendance" ON public.attendance
   FOR ALL USING (auth.role() = 'authenticated');
 
@@ -476,12 +508,15 @@ CREATE TABLE IF NOT EXISTS public.messages (
 
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view their messages" ON public.messages;
 CREATE POLICY "Users can view their messages" ON public.messages
   FOR SELECT USING (auth.uid() = sender_id OR auth.uid() = recipient_id);
 
+DROP POLICY IF EXISTS "Users can send messages" ON public.messages;
 CREATE POLICY "Users can send messages" ON public.messages
   FOR INSERT WITH CHECK (auth.uid() = sender_id);
 
+DROP POLICY IF EXISTS "Users can update their messages" ON public.messages;
 CREATE POLICY "Users can update their messages" ON public.messages
   FOR UPDATE USING (auth.uid() = sender_id OR auth.uid() = recipient_id);
 
@@ -500,6 +535,7 @@ CREATE TABLE IF NOT EXISTS public.sms_log (
 
 ALTER TABLE public.sms_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can manage sms_log" ON public.sms_log;
 CREATE POLICY "Authenticated users can manage sms_log" ON public.sms_log
   FOR ALL USING (auth.role() = 'authenticated');
 
@@ -519,9 +555,11 @@ CREATE TABLE IF NOT EXISTS public.audit_log (
 
 ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view audit_log" ON public.audit_log;
 CREATE POLICY "Authenticated users can view audit_log" ON public.audit_log
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can insert audit_log" ON public.audit_log;
 CREATE POLICY "Authenticated users can insert audit_log" ON public.audit_log
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
@@ -538,9 +576,11 @@ CREATE TABLE IF NOT EXISTS public.org_settings (
 
 ALTER TABLE public.org_settings ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Authenticated users can view org_settings" ON public.org_settings;
 CREATE POLICY "Authenticated users can view org_settings" ON public.org_settings
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Authenticated users can manage org_settings" ON public.org_settings;
 CREATE POLICY "Authenticated users can manage org_settings" ON public.org_settings
   FOR ALL USING (auth.role() = 'authenticated');
 
@@ -562,11 +602,40 @@ CREATE TABLE IF NOT EXISTS public.notification_preferences (
 
 ALTER TABLE public.notification_preferences ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage their notification preferences" ON public.notification_preferences;
 CREATE POLICY "Users can manage their notification preferences" ON public.notification_preferences
   FOR ALL USING (auth.uid() = user_id);
 
 -- ────────────────────────────────────────────
--- 19. HELPER FUNCTIONS
+-- 19. IN-APP NOTIFICATIONS
+-- ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  title text NOT NULL,
+  body text NOT NULL DEFAULT '',
+  type text NOT NULL DEFAULT 'info' CHECK (type IN ('info','warning','success','error')),
+  link text DEFAULT '',
+  is_read boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view their notifications" ON public.notifications;
+CREATE POLICY "Users can view their notifications" ON public.notifications
+  FOR SELECT USING (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Authenticated users can insert notifications" ON public.notifications;
+CREATE POLICY "Authenticated users can insert notifications" ON public.notifications
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Users can update their notifications" ON public.notifications;
+CREATE POLICY "Users can update their notifications" ON public.notifications
+  FOR UPDATE USING (auth.uid() = user_id);
+
+-- ────────────────────────────────────────────
+-- 20. HELPER FUNCTIONS
 -- ────────────────────────────────────────────
 
 -- Generate sequential IDs
@@ -612,19 +681,23 @@ DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
 
 -- New policies: authenticated users can read all profiles, but only update own
+DROP POLICY IF EXISTS "Authenticated users can view profiles" ON public.profiles;
 CREATE POLICY "Authenticated users can view profiles"
   ON public.profiles FOR SELECT
   USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile"
   ON public.profiles FOR UPDATE
   USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users can insert own profile" ON public.profiles;
 CREATE POLICY "Users can insert own profile"
   ON public.profiles FOR INSERT
   WITH CHECK (auth.uid() = id);
 
 -- Super admin can update any profile (for role assignments)
+DROP POLICY IF EXISTS "Super admin can update any profile" ON public.profiles;
 CREATE POLICY "Super admin can update any profile"
   ON public.profiles FOR UPDATE
   USING (
@@ -672,6 +745,84 @@ ALTER TABLE public.fund_requests ADD COLUMN IF NOT EXISTS justification text DEF
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url text DEFAULT '';
 
 -- ────────────────────────────────────────────
--- 23. STORAGE BUCKETS (run in Supabase dashboard or via API)
+-- 24. WEEKLY PAYMENT TRACKING (booklet-to-digital workflow)
+-- ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.weekly_payments (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  member_id uuid NOT NULL REFERENCES public.members(id),
+  group_id uuid REFERENCES public.groups(id),
+  branch_id uuid REFERENCES public.branches(id),
+  loan_id uuid REFERENCES public.loan_applications(id),
+  week_number integer NOT NULL,           -- ISO week number (1–53)
+  week_start_date date NOT NULL,          -- Monday of the week
+  year integer NOT NULL,
+  amount_due numeric(15,2) NOT NULL DEFAULT 0,
+  amount_paid numeric(15,2) NOT NULL DEFAULT 0,
+  outstanding numeric(15,2) NOT NULL DEFAULT 0,
+  payment_method text DEFAULT 'cash' CHECK (payment_method IN ('cash','bank_transfer','mobile_money','cheque')),
+  payment_date date,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','partial','overdue','missed')),
+  booklet_reference text DEFAULT '',      -- reference from physical booklet
+  notes text DEFAULT '',
+  recorded_by uuid REFERENCES public.profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(member_id, loan_id, week_start_date)
+);
+
+ALTER TABLE public.weekly_payments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can view weekly_payments" ON public.weekly_payments;
+CREATE POLICY "Authenticated users can view weekly_payments" ON public.weekly_payments
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can insert weekly_payments" ON public.weekly_payments;
+CREATE POLICY "Authenticated users can insert weekly_payments" ON public.weekly_payments
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can update weekly_payments" ON public.weekly_payments;
+CREATE POLICY "Authenticated users can update weekly_payments" ON public.weekly_payments
+  FOR UPDATE USING (auth.role() = 'authenticated');
+
+CREATE INDEX IF NOT EXISTS idx_weekly_payments_member ON public.weekly_payments(member_id);
+CREATE INDEX IF NOT EXISTS idx_weekly_payments_group ON public.weekly_payments(group_id);
+CREATE INDEX IF NOT EXISTS idx_weekly_payments_branch ON public.weekly_payments(branch_id);
+CREATE INDEX IF NOT EXISTS idx_weekly_payments_week ON public.weekly_payments(year, week_number);
+CREATE INDEX IF NOT EXISTS idx_weekly_payments_loan ON public.weekly_payments(loan_id);
+
+-- ────────────────────────────────────────────
+-- 25. SAVINGS WITHDRAWALS TABLE (cooperative module)
+-- ────────────────────────────────────────────
+-- Withdrawals are already handled in savings_transactions with type='withdrawal'
+-- No additional table needed, but add a withdrawal_reason field
+ALTER TABLE public.savings_transactions ADD COLUMN IF NOT EXISTS withdrawal_reason text DEFAULT '';
+
+-- ────────────────────────────────────────────
+-- 26. LOAN RULES & REGULATIONS
+-- ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.loan_rules (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  title text NOT NULL,
+  content text NOT NULL,
+  category text NOT NULL DEFAULT 'general' CHECK (category IN ('general','cooperative','external','staff')),
+  display_order integer NOT NULL DEFAULT 0,
+  is_active boolean NOT NULL DEFAULT true,
+  created_by uuid REFERENCES public.profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.loan_rules ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can view loan_rules" ON public.loan_rules;
+CREATE POLICY "Authenticated users can view loan_rules" ON public.loan_rules
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can manage loan_rules" ON public.loan_rules;
+CREATE POLICY "Authenticated users can manage loan_rules" ON public.loan_rules
+  FOR ALL USING (auth.role() = 'authenticated');
+
+-- ────────────────────────────────────────────
+-- 27. STORAGE BUCKETS (run in Supabase dashboard or via API)
 -- ────────────────────────────────────────────
 -- INSERT INTO storage.buckets (id, name, public) VALUES ('documents', 'documents', true) ON CONFLICT DO NOTHING;

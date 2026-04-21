@@ -63,6 +63,8 @@ export default function RecordAttendancePage() {
   const [processing, setProcessing] = useState<string | null>(null);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  const [lateModal, setLateModal] = useState<{ staff: any; clockInTime: string } | null>(null);
+  const [lateReason, setLateReason] = useState("");
 
   useEffect(() => {
     loadData();
@@ -97,6 +99,12 @@ export default function RecordAttendancePage() {
     const minute = new Date().getMinutes();
     const isLate = hour > 8 || (hour === 8 && minute > 30);
 
+    if (isLate) {
+      setLateModal({ staff, clockInTime: now });
+      setLateReason("");
+      return;
+    }
+
     setProcessing(staff.id);
     setError("");
     setSuccess("");
@@ -105,17 +113,44 @@ export default function RecordAttendancePage() {
         staff_id: staff.id,
         date: selectedDate,
         clock_in: now,
-        status: isLate ? "late" : "present",
+        status: "present",
         branch_id: staff.branch_id || undefined,
       });
       setAttendance((prev) => ({ ...prev, [staff.id]: record }));
       setSuccess(
-        `${staff.first_name} ${staff.last_name} clocked in at ${new Date(now).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}${isLate ? " (Late)" : ""}`
+        `${staff.first_name} ${staff.last_name} clocked in at ${new Date(now).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}`
       );
     } catch (e: any) {
       setError(e.message || "Failed to record clock-in");
     }
     setProcessing(null);
+  };
+
+  const handleLateClockInSubmit = async () => {
+    if (!lateModal) return;
+    const { staff, clockInTime } = lateModal;
+    setProcessing(staff.id);
+    setError("");
+    setSuccess("");
+    setLateModal(null);
+    try {
+      const record = await recordAttendance({
+        staff_id: staff.id,
+        date: selectedDate,
+        clock_in: clockInTime,
+        status: "late",
+        branch_id: staff.branch_id || undefined,
+        notes: lateReason.trim() || "No reason provided",
+      });
+      setAttendance((prev) => ({ ...prev, [staff.id]: record }));
+      setSuccess(
+        `${staff.first_name} ${staff.last_name} clocked in at ${new Date(clockInTime).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })} (Late — ${lateReason.trim() || "No reason provided"})`
+      );
+    } catch (e: any) {
+      setError(e.message || "Failed to record clock-in");
+    }
+    setProcessing(null);
+    setLateReason("");
   };
 
   const handleClockOut = async (staff: any) => {
@@ -453,7 +488,14 @@ export default function RecordAttendancePage() {
                       </td>
                       <td className="px-4 py-4">
                         {record ? (
-                          statusBadge(record.status)
+                          <div>
+                            {statusBadge(record.status)}
+                            {record.status === "late" && record.notes && (
+                              <p className="text-[10px] text-amber-600 mt-1 max-w-[140px] truncate" title={record.notes}>
+                                {record.notes}
+                              </p>
+                            )}
+                          </div>
                         ) : (
                           <span className="inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider bg-gray-100 text-gray-400">
                             NOT RECORDED
@@ -545,6 +587,48 @@ export default function RecordAttendancePage() {
           </p>
         </div>
       </div>
+
+      {/* ─── Late Reason Modal ─── */}
+      {lateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center">
+                <Clock className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-navy-900">Late Clock-In</h3>
+                <p className="text-sm text-gray-500">
+                  {lateModal.staff.first_name} {lateModal.staff.last_name} — {new Date(lateModal.clockInTime).toLocaleTimeString("en-NG", { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            </div>
+            <label className="block text-sm font-medium text-navy-900 mb-1.5">Reason for Lateness <span className="text-red-500">*</span></label>
+            <textarea
+              rows={3}
+              placeholder="Enter reason for coming late..."
+              value={lateReason}
+              onChange={(e) => setLateReason(e.target.value)}
+              className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent resize-none"
+            />
+            <div className="flex items-center justify-end gap-3 mt-5">
+              <button
+                onClick={() => { setLateModal(null); setLateReason(""); }}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLateClockInSubmit}
+                disabled={!lateReason.trim()}
+                className="px-5 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 transition-colors disabled:opacity-50"
+              >
+                Submit & Clock In
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { fetchLoanApplications, sendOverdueReminders, sendSMS, fetchOverdueScheduleItems } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 import { useAuth } from "../auth/useAuth";
 
 const avatarColors = [
@@ -91,10 +92,7 @@ export default function OverdueLoansPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Report
-          </button>
+          <ExportMenu data={() => loans.map((l: any) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount, DueDate: l.due_date, DaysOverdue: l.days_overdue || '', OutstandingBalance: l.outstanding_balance || l.amount }))} filename="overdue_loans" label="Export Report" />
           <button
             onClick={handleBulkReminders}
             disabled={sendingBulk}

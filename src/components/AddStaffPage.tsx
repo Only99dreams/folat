@@ -12,7 +12,7 @@ import {
   File,
   Loader2,
 } from "lucide-react";
-import { fetchBranches, createStaff, uploadFile } from "../lib/db";
+import { fetchBranches, createStaff, uploadFile, createDocument } from "../lib/db";
 
 export default function AddStaffPage() {
   const navigate = useNavigate();
@@ -69,16 +69,25 @@ export default function AddStaffPage() {
         employment_type: form.employmentStatus,
         employment_status: "active",
       });
-      // Upload documents to storage
+      // Upload documents to storage and save records
       const staffId = staffData.id;
       if (idCardFile) {
-        await uploadFile("staff-documents", `${staffId}/id-card-${idCardFile.name}`, idCardFile);
+        try {
+          const url = await uploadFile("staff-documents", `${staffId}/id-card-${idCardFile.name}`, idCardFile);
+          await createDocument({ owner_type: "staff", owner_id: staffId, document_type: "id_card", name: idCardFile.name, file_url: url, file_size: idCardFile.size, mime_type: idCardFile.type });
+        } catch (e) { console.error("ID card upload failed:", e); }
       }
       if (contractFile) {
-        await uploadFile("staff-documents", `${staffId}/contract-${contractFile.name}`, contractFile);
+        try {
+          const url = await uploadFile("staff-documents", `${staffId}/contract-${contractFile.name}`, contractFile);
+          await createDocument({ owner_type: "staff", owner_id: staffId, document_type: "contract", name: contractFile.name, file_url: url, file_size: contractFile.size, mime_type: contractFile.type });
+        } catch (e) { console.error("Contract upload failed:", e); }
       }
       if (resumeFile) {
-        await uploadFile("staff-documents", `${staffId}/resume-${resumeFile.name}`, resumeFile);
+        try {
+          const url = await uploadFile("staff-documents", `${staffId}/resume-${resumeFile.name}`, resumeFile);
+          await createDocument({ owner_type: "staff", owner_id: staffId, document_type: "resume", name: resumeFile.name, file_url: url, file_size: resumeFile.size, mime_type: resumeFile.type });
+        } catch (e) { console.error("Resume upload failed:", e); }
       }
       navigate("/hr/staff");
     } catch (e: any) { setError(e.message || "Failed to add staff"); }

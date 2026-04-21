@@ -13,6 +13,7 @@ import {
   TrendingUp,
   Loader2,
 } from "lucide-react";
+import ExportMenu from "./ExportMenu";
 import { fetchLoanApplications, fetchBranches } from "../lib/db";
 
 const avatarColors = [
@@ -62,10 +63,7 @@ export default function ActiveLoansPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Report
-          </button>
+          <ExportMenu data={() => loans.map((l: any) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount, Interest: l.interest_rate, Status: l.status, DisbursedAt: l.disbursed_at, DueDate: l.due_date }))} filename="active_loans" label="Export Report" />
           <Link to="/loans/new" className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
             <Plus className="w-4 h-4" />
             New Loan

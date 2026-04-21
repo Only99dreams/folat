@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Plus,
   Search,
@@ -10,7 +10,7 @@ import {
   ChevronRight,
   Loader2,
 } from "lucide-react";
-import { fetchStaff, fetchBranches } from "../lib/db";
+import { fetchStaff, fetchBranches, updateStaff } from "../lib/db";
 
 const statusDot = (status: string) => {
   const colors: Record<string, string> = {
@@ -27,12 +27,16 @@ const statusDot = (status: string) => {
 };
 
 export default function StaffListPage() {
+  const navigate = useNavigate();
   const [staffList, setStaffList] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [branchFilter, setBranchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [suspending, setSuspending] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
 
@@ -50,6 +54,22 @@ export default function StaffListPage() {
       setLoading(false);
     })();
   }, [branchFilter, statusFilter, search]);
+
+  const handleSuspend = async (staffId: string, currentStatus: string) => {
+    const newStatus = currentStatus === "active" ? "suspended" : "active";
+    if (!confirm(`Are you sure you want to ${newStatus === "suspended" ? "suspend" : "reactivate"} this staff member?`)) return;
+    setSuspending(staffId);
+    try {
+      await updateStaff(staffId, { employment_status: newStatus });
+      setStaffList(prev => prev.map(s => s.id === staffId ? { ...s, employment_status: newStatus } : s));
+    } catch (err) {
+      console.error("Failed to update staff status:", err);
+    }
+    setSuspending(null);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(staffList.length / pageSize));
+  const paginatedStaff = staffList.slice((page - 1) * pageSize, page * pageSize);
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
@@ -135,19 +155,36 @@ export default function StaffListPage() {
                 <tr><td colSpan={7} className="py-12 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" /></td></tr>
               ) : staffList.length === 0 ? (
                 <tr><td colSpan={7} className="py-12 text-center text-sm text-gray-400">No staff found</td></tr>
-              ) : staffList.map((staff) => (
+              ) : paginatedStaff.map((staff) => (
                 <tr key={staff.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
-                  <td className="px-6 py-4"><p className="text-sm font-medium text-navy-900">{staff.first_name} {staff.last_name}</p></td>
-                  <td className="px-4 py-4"><span className="inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider bg-blue-600 text-white capitalize">{staff.role ?? staff.position ?? '\u2014'}</span></td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-navy-100 text-navy-900 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        {(staff.first_name?.[0] ?? "").toUpperCase()}{(staff.last_name?.[0] ?? "").toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-navy-900">{staff.first_name} {staff.last_name}</p>
+                        <p className="text-[10px] text-gray-400">{staff.staff_id}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4"><span className="inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider bg-blue-600 text-white capitalize">{staff.job_role || '\u2014'}</span></td>
                   <td className="px-4 py-4"><p className="text-sm text-gray-600">{staff.branch?.name ?? '\u2014'}</p></td>
                   <td className="px-4 py-4"><p className="text-sm text-gray-600">{staff.phone ?? '\u2014'}</p></td>
-                  <td className="px-4 py-4">{statusDot(staff.status ?? 'active')}</td>
+                  <td className="px-4 py-4">{statusDot(staff.employment_status ?? 'active')}</td>
                   <td className="px-4 py-4"><p className="text-sm text-gray-600">{staff.date_joined ? new Date(staff.date_joined).toLocaleDateString() : '\u2014'}</p></td>
                   <td className="px-4 py-4">
                     <div className="flex items-center justify-end gap-2">
-                      <Link to={`/hr/staff/${staff.id}`} className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Eye className="w-4 h-4" /></Link>
-                      <button className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Pencil className="w-4 h-4" /></button>
-                      <button className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"><UserX className="w-4 h-4" /></button>
+                      <Link to={`/hr/staff/${staff.id}`} title="View Profile" className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Eye className="w-4 h-4" /></Link>
+                      <button onClick={() => navigate(`/hr/staff/${staff.id}?edit=true`)} title="Edit" className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Pencil className="w-4 h-4" /></button>
+                      <button
+                        onClick={() => handleSuspend(staff.id, staff.employment_status ?? "active")}
+                        disabled={suspending === staff.id}
+                        title={staff.employment_status === "active" ? "Suspend" : "Reactivate"}
+                        className="p-1.5 text-gray-400 hover:text-red-500 transition-colors disabled:opacity-40"
+                      >
+                        {suspending === staff.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserX className="w-4 h-4" />}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -159,28 +196,33 @@ export default function StaffListPage() {
         {/* Pagination */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
           <p className="text-sm text-gray-500">
-            Showing <span className="font-semibold text-navy-900">{staffList.length}</span> staff
+            Showing <span className="font-semibold text-navy-900">{Math.min((page - 1) * pageSize + 1, staffList.length)}</span>–<span className="font-semibold text-navy-900">{Math.min(page * pageSize, staffList.length)}</span> of <span className="font-semibold text-navy-900">{staffList.length}</span> staff
           </p>
           <div className="flex items-center gap-1">
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors">
+            <button
+              disabled={page <= 1}
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-40"
+            >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg bg-navy-900 text-white text-sm font-semibold">
-              1
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-colors">
-              2
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-colors">
-              3
-            </button>
-            <span className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">
-              …
-            </span>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-sm hover:bg-gray-50 transition-colors">
-              5
-            </button>
-            <button className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).slice(0, 5).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPage(p)}
+                className={`w-8 h-8 flex items-center justify-center rounded-lg text-sm font-semibold ${
+                  p === page ? "bg-navy-900 text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"
+                } transition-colors`}
+              >
+                {p}
+              </button>
+            ))}
+            {totalPages > 5 && <span className="w-8 h-8 flex items-center justify-center text-gray-400 text-sm">…</span>}
+            <button
+              disabled={page >= totalPages}
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-gray-200 text-gray-400 hover:bg-gray-50 transition-colors disabled:opacity-40"
+            >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>

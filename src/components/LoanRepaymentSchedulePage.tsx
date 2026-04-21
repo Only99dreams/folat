@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Info, Printer, FileDown, CreditCard, Loader2 } from "lucide-react";
 import { fetchLoanApplication, fetchLoanSchedule } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 const statusBadge = (status: string) => {
   const styles: Record<string, string> = {
@@ -71,14 +72,11 @@ export default function LoanRepaymentSchedulePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+          <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             <Printer className="w-4 h-4" />
             Print Schedule
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <FileDown className="w-4 h-4" />
-            Download PDF
-          </button>
+          <ExportMenu data={() => installments.map((inst: any, i: number) => ({ Installment: i + 1, DueDate: inst.due_date, Principal: inst.principal, Interest: inst.interest, Total: inst.total || (inst.principal + inst.interest), Status: inst.status || 'pending' }))} filename={`repayment_schedule_${loan?.loan_id || ''}`} label="Download" />
           <button className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
             <CreditCard className="w-4 h-4" />
             Record Payment

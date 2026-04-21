@@ -22,6 +22,8 @@ export default function MessagesPage() {
   const [profiles, setProfiles] = useState<any[]>([]);
   const [composeSending, setComposeSending] = useState(false);
   const [composeForm, setComposeForm] = useState({ recipient_id: "", subject: "", body: "" });
+  const [inboxTotal, setInboxTotal] = useState(0);
+  const [sentTotal, setSentTotal] = useState(0);
 
   const loadMessages = async () => {
     if (!user?.id) return;
@@ -33,7 +35,20 @@ export default function MessagesPage() {
     setLoading(false);
   };
 
+  const loadStats = async () => {
+    if (!user?.id) return;
+    try {
+      const [inbox, sent] = await Promise.all([
+        fetchMessages(user.id, undefined),
+        fetchMessages(user.id, "sent"),
+      ]);
+      setInboxTotal(inbox.length);
+      setSentTotal(sent.length);
+    } catch {}
+  };
+
   useEffect(() => { loadMessages(); }, [user?.id, activeFolder]);
+  useEffect(() => { loadStats(); }, [user?.id]);
 
   const openCompose = () => {
     if (profiles.length === 0) {
@@ -55,6 +70,7 @@ export default function MessagesPage() {
       });
       setShowCompose(false);
       loadMessages();
+      loadStats();
     } catch {}
     setComposeSending(false);
   };
@@ -80,7 +96,7 @@ export default function MessagesPage() {
 
   const folders = [
     { icon: Inbox, label: "Inbox", key: "inbox", count: unreadCount },
-    { icon: Send, label: "Sent", key: "sent", count: 0 },
+    { icon: Send, label: "Sent", key: "sent", count: sentTotal },
   ];
 
   return (
@@ -136,12 +152,20 @@ export default function MessagesPage() {
             <p className="text-xs font-semibold text-navy-900 mb-2">Quick Stats</p>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">Total Messages</span>
-                <span className="font-semibold text-navy-900">{msgs.length}</span>
+                <span className="text-gray-500">Inbox</span>
+                <span className="font-semibold text-navy-900">{inboxTotal}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-500">Unread</span>
                 <span className="font-semibold text-green-600">{unreadCount}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Sent</span>
+                <span className="font-semibold text-navy-900">{sentTotal}</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-500">Total</span>
+                <span className="font-semibold text-navy-900">{inboxTotal + sentTotal}</span>
               </div>
             </div>
           </div>
@@ -225,7 +249,25 @@ export default function MessagesPage() {
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <h2 className="text-lg font-bold text-navy-900">{msg.subject}</h2>
-              <button onClick={() => setSelectedMessage(null)} className="text-gray-400 hover:text-gray-600 text-sm font-medium">Close</button>
+              <div className="flex items-center gap-2">
+                {activeFolder === "inbox" && (
+                  <button
+                    onClick={() => {
+                      if (profiles.length === 0) fetchAllProfiles().then(setProfiles).catch(() => {});
+                      setComposeForm({
+                        recipient_id: msg.sender_id || "",
+                        subject: msg.subject?.startsWith("Re: ") ? msg.subject : `Re: ${msg.subject}`,
+                        body: "",
+                      });
+                      setShowCompose(true);
+                    }}
+                    className="px-3 py-1.5 bg-navy-900 text-white rounded-lg text-sm font-medium hover:bg-navy-800 transition-colors"
+                  >
+                    Reply
+                  </button>
+                )}
+                <button onClick={() => setSelectedMessage(null)} className="text-gray-400 hover:text-gray-600 text-sm font-medium">Close</button>
+              </div>
             </div>
             <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
               <div>

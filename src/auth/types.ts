@@ -64,6 +64,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "savings.view", "savings.deposit", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
     "loans.view", "loans.disburse", "loans.repayments",
     "finance.view", "finance.add_income", "finance.add_expense", "finance.ledger", "finance.fund_requests",
+    "communication.messages",
     "reports.view",
   ],
   loan_officer: [
@@ -71,6 +72,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "loans.view", "loans.create", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
     "groups.view",
     "finance.view", "finance.ledger",
+    "communication.messages",
     "reports.view",
   ],
   front_desk: [
@@ -84,6 +86,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "savings.view", "savings.transactions", "savings.statement",
     "loans.view", "loans.repayments",
     "finance.view", "finance.ledger",
+    "communication.messages",
     "reports.view",
     "security.audit_log",
   ],

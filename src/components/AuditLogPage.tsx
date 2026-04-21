@@ -12,6 +12,7 @@ import {
   Activity,
   Loader2,
 } from "lucide-react";
+import ExportMenu from "./ExportMenu";
 import { fetchAuditLog } from "../lib/db";
 
 const actionIcons: Record<string, React.ElementType> = {
@@ -88,10 +89,7 @@ export default function AuditLogPage() {
             Today
             <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
           </div>
-          <button className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Log
-          </button>
+          <ExportMenu data={() => entries.map((e: any) => ({ Action: e.action, Entity: e.entity_type, User: e.user?.full_name || '', Details: e.details || '', Date: e.created_at }))} filename="audit_log" label="Export Log" className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors" />
         </div>
       </div>
 

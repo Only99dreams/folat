@@ -1265,6 +1265,45 @@ export async function fetchDashboardStats() {
   };
 }
 
+export async function fetchSavingsVsLoansChartData(year?: number) {
+  const y = year ?? new Date().getFullYear();
+  const startDate = `${y}-01-01T00:00:00`;
+  const endDate = `${y}-12-31T23:59:59`;
+
+  const [savingsRes, loansRes] = await Promise.all([
+    supabase
+      .from("savings_transactions")
+      .select("amount, type, created_at")
+      .gte("created_at", startDate)
+      .lte("created_at", endDate),
+    supabase
+      .from("loan_applications")
+      .select("amount_approved, amount_requested, status, created_at")
+      .in("status", ["approved", "disbursed", "active", "completed"])
+      .gte("created_at", startDate)
+      .lte("created_at", endDate),
+  ]);
+
+  const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+  const chartData = months.map((month) => ({ month, savings: 0, loans: 0 }));
+
+  for (const txn of savingsRes.data ?? []) {
+    const m = new Date(txn.created_at).getMonth();
+    if (txn.type === "deposit") {
+      chartData[m].savings += Number(txn.amount);
+    } else if (txn.type === "withdrawal") {
+      chartData[m].savings -= Number(txn.amount);
+    }
+  }
+
+  for (const loan of loansRes.data ?? []) {
+    const m = new Date(loan.created_at).getMonth();
+    chartData[m].loans += Number(loan.amount_approved ?? loan.amount_requested);
+  }
+
+  return chartData;
+}
+
 export async function fetchRecentTransactions(limit = 10) {
   const { data, error } = await supabase
     .from("savings_transactions")
@@ -1401,5 +1440,30 @@ export async function deleteLoanRule(id: string) {
   const { error } = await supabase.from("loan_rules")
     .update({ is_active: false, updated_at: new Date().toISOString() })
     .eq("id", id);
+  if (error) throw error;
+}
+
+// ═══════════════════════════════════════════
+// DOCUMENTS
+// ═══════════════════════════════════════════
+export async function createDocument(doc: Record<string, unknown>) {
+  const { data, error } = await supabase.from("documents").insert(doc).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchDocuments(ownerType: "member" | "staff", ownerId: string) {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("*")
+    .eq("owner_type", ownerType)
+    .eq("owner_id", ownerId)
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function deleteDocument(id: string) {
+  const { error } = await supabase.from("documents").delete().eq("id", id);
   if (error) throw error;
 }

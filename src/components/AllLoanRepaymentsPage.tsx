@@ -13,6 +13,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchLoanRepayments, fetchBranches } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 const avatarColors = [
   "bg-blue-600 text-white",
@@ -76,18 +77,7 @@ export default function AllLoanRepaymentsPage() {
           <span className="text-xs text-gray-400 font-semibold tracking-wide uppercase">
             Export Data:
           </span>
-          <button className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <FileSpreadsheet className="w-4 h-4" />
-            EXCEL
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <FileText className="w-4 h-4" />
-            PDF
-          </button>
-          <button className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <File className="w-4 h-4" />
-            CSV
-          </button>
+          <ExportMenu data={() => repayments.map((r: any) => ({ LoanID: r.loan?.loan_id || '', Member: (r.loan?.member?.first_name || '') + ' ' + (r.loan?.member?.last_name || ''), Amount: r.amount, Method: r.payment_method, Date: r.payment_date, Reference: r.reference || '' }))} filename="loan_repayments" label="Export" className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors" />
         </div>
       </div>
 

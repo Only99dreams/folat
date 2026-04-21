@@ -21,6 +21,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { fetchSavingsTransactions, fetchSavingsAccounts } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 import { supabase } from "../lib/supabase";
 
 export default function SavingsDashboardPage() {
@@ -107,11 +108,7 @@ export default function SavingsDashboardPage() {
           <Upload className="w-4 h-4" />
           Upload CSV
         </Link>
-        <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-full text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-          <FileDown className="w-4 h-4" />
-          Export Reports
-          <ChevronDown className="w-3.5 h-3.5" />
-        </button>
+        <ExportMenu data={() => recentTxns.map((t: any) => ({ Member: t.member?.first_name + ' ' + t.member?.last_name, Type: t.type, Amount: t.amount, Date: t.created_at, Reference: t.reference || '' }))} filename="savings_report" label="Export Reports" className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-full text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors" />
       </div>
 
       {/* ─── Stats Row ─── */}

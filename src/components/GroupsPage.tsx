@@ -15,6 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchGroups, fetchBranches } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 export default function GroupsPage() {
   const [branchFilter, setBranchFilter] = useState("");
@@ -61,10 +62,7 @@ export default function GroupsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          <ExportMenu data={() => groups.map((g: any) => ({ Name: g.name, Branch: g.branch?.name || '', Members: g.member_count || 0, Leader: g.leader || '', Status: g.status, Created: g.created_at }))} filename="groups" label="Export" />
           <Link
             to="/groups/add"
             className="flex items-center gap-2 px-4 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors"

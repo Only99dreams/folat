@@ -11,7 +11,7 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import { createMember, generateMemberId } from "../lib/db";
+import { createMember, generateMemberId, uploadFile, createDocument } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 
 export default function AddExternalCustomerPage() {
@@ -61,7 +61,7 @@ export default function AddExternalCustomerPage() {
     setSubmitting(true);
     try {
       const memberId = await generateMemberId();
-      await createMember({
+      const memberData = await createMember({
         member_id: memberId,
         first_name: firstName,
         last_name: lastName,
@@ -82,6 +82,22 @@ export default function AddExternalCustomerPage() {
         created_by: user?.id,
         status: "active",
       });
+      // Upload ID document if provided
+      if (docFile && memberData?.id) {
+        try {
+          const url = await uploadFile("documents", `members/${memberData.id}/id-card-${docFile.name}`, docFile);
+          await createDocument({
+            owner_type: "member",
+            owner_id: memberData.id,
+            document_type: "id_card",
+            name: docFile.name,
+            file_url: url,
+            file_size: docFile.size,
+            mime_type: docFile.type,
+            uploaded_by: user?.id,
+          });
+        } catch (e) { console.error("Document upload failed:", e); }
+      }
       navigate("/members");
     } catch (err: any) {
       setError(err.message || "Failed to add customer");

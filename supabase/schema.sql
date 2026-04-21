@@ -14,11 +14,11 @@ ALTER TABLE public.profiles
   CHECK (role IN ('super_admin','branch_manager','finance_officer','loan_officer','front_desk','auditor','hr_manager','unassigned'));
 
 -- Add status columns if missing
-DO $$ BEGIN
+DO $do1$ BEGIN
   ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
   ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_login timestamptz;
 EXCEPTION WHEN others THEN NULL;
-END $$;
+END $do1$;
 
 -- ────────────────────────────────────────────
 -- 2. BRANCHES
@@ -148,11 +148,11 @@ CREATE POLICY "Authenticated users can update groups" ON public.groups
   FOR UPDATE USING (auth.role() = 'authenticated');
 
 -- Add FK to members
-DO $$ BEGIN
+DO $do2$ BEGIN
   ALTER TABLE public.members
     ADD CONSTRAINT members_group_fk FOREIGN KEY (group_id) REFERENCES public.groups(id);
 EXCEPTION WHEN duplicate_object THEN NULL;
-END $$;
+END $do2$;
 
 -- Group members junction table
 CREATE TABLE IF NOT EXISTS public.group_members (
@@ -637,43 +637,11 @@ CREATE POLICY "Users can update their notifications" ON public.notifications
 -- ────────────────────────────────────────────
 -- 20. HELPER FUNCTIONS
 -- ────────────────────────────────────────────
-
--- Generate sequential IDs
-CREATE OR REPLACE FUNCTION public.generate_member_id()
-RETURNS text AS $$
-DECLARE
-  next_num integer;
-BEGIN
-  SELECT COALESCE(MAX(CAST(SUBSTRING(member_id FROM '\d+$') AS integer)), 0) + 1
-  INTO next_num FROM public.members;
-  RETURN 'FOL-' || TO_CHAR(CURRENT_DATE, 'YYYY') || '-' || LPAD(next_num::text, 4, '0');
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION public.generate_loan_id()
-RETURNS text AS $$
-DECLARE
-  next_num integer;
-BEGIN
-  SELECT COALESCE(MAX(CAST(SUBSTRING(loan_id FROM '\d+$') AS integer)), 0) + 1
-  INTO next_num FROM public.loan_applications;
-  RETURN 'LN-' || TO_CHAR(CURRENT_DATE, 'YYYY') || '-' || LPAD(next_num::text, 4, '0');
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE OR REPLACE FUNCTION public.generate_transaction_id()
-RETURNS text AS $$
-DECLARE
-  next_num integer;
-BEGIN
-  SELECT COALESCE(MAX(CAST(SUBSTRING(transaction_id FROM '\d+$') AS integer)), 0) + 1
-  INTO next_num FROM public.savings_transactions;
-  RETURN 'TXN-' || TO_CHAR(CURRENT_DATE, 'YYYYMMDD') || '-' || LPAD(next_num::text, 4, '0');
-END;
-$$ LANGUAGE plpgsql;
+-- NOTE: PL/pgSQL functions are in a separate file: supabase/functions.sql
+-- Run that file AFTER this schema file in the Supabase SQL Editor.
 
 -- ────────────────────────────────────────────
--- 20. PROFILES TABLE — allow super_admin to read all profiles
+-- 20b. PROFILES TABLE — allow super_admin to read all profiles
 -- ────────────────────────────────────────────
 -- Drop old restrictive policies
 DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
@@ -713,6 +681,38 @@ CREATE INDEX IF NOT EXISTS idx_members_branch ON public.members(branch_id);
 CREATE INDEX IF NOT EXISTS idx_members_status ON public.members(status);
 CREATE INDEX IF NOT EXISTS idx_members_member_id ON public.members(member_id);
 CREATE INDEX IF NOT EXISTS idx_savings_member ON public.savings_accounts(member_id);
+
+-- ────────────────────────────────────────────
+-- 28. DOCUMENTS
+-- ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.documents (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  owner_type text NOT NULL CHECK (owner_type IN ('member','staff')),
+  owner_id uuid NOT NULL,
+  document_type text NOT NULL DEFAULT 'other' CHECK (document_type IN ('id_card','contract','resume','guarantor_form','loan_agreement','certificate','passport','other')),
+  name text NOT NULL DEFAULT '',
+  file_url text NOT NULL DEFAULT '',
+  file_size bigint DEFAULT 0,
+  mime_type text DEFAULT '',
+  uploaded_by uuid REFERENCES public.profiles(id),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can view documents" ON public.documents;
+CREATE POLICY "Authenticated users can view documents" ON public.documents
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can insert documents" ON public.documents;
+CREATE POLICY "Authenticated users can insert documents" ON public.documents
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can delete documents" ON public.documents;
+CREATE POLICY "Authenticated users can delete documents" ON public.documents
+  FOR DELETE USING (auth.role() = 'authenticated');
+
+CREATE INDEX IF NOT EXISTS idx_documents_owner ON public.documents(owner_type, owner_id);
 CREATE INDEX IF NOT EXISTS idx_savings_txn_account ON public.savings_transactions(account_id);
 CREATE INDEX IF NOT EXISTS idx_savings_txn_member ON public.savings_transactions(member_id);
 CREATE INDEX IF NOT EXISTS idx_loans_member ON public.loan_applications(member_id);

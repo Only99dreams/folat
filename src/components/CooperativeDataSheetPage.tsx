@@ -6,6 +6,7 @@ import {
   Users,
   Printer,
 } from "lucide-react";
+import ExportMenu from "./ExportMenu";
 import { supabase } from "../lib/supabase";
 import { fetchBranches } from "../lib/db";
 
@@ -147,10 +148,7 @@ export default function CooperativeDataSheetPage() {
             <Printer className="w-4 h-4" />
             Print
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export CSV
-          </button>
+          <ExportMenu data={() => records.map((r: any) => ({ Name: r.first_name + ' ' + r.last_name, MemberID: r.member_id, Phone: r.phone, Branch: r.branch?.name || '', Group: r.group?.name || '', Status: r.status, Joined: r.created_at }))} filename="cooperative_data_sheet" label="Export" />
         </div>
       </div>
 

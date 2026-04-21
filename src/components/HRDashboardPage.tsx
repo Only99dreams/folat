@@ -17,6 +17,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchStaff, fetchLeaveRequests, fetchAttendance, fetchBranches } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 export default function HRDashboardPage() {
   const [totalStaff, setTotalStaff] = useState(0);
@@ -83,11 +84,7 @@ export default function HRDashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Report
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
+          <ExportMenu data={() => [{ TotalStaff: totalStaff, PresentToday: presentToday, AbsentToday: absentToday, PendingLeaves: pendingLeaves }]} filename="hr_report" label="Export Report" />
           <Link to="/hr/staff/add" className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
             <Plus className="w-4 h-4" />
             Add Staff

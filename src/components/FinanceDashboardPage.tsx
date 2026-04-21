@@ -21,6 +21,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { fetchFinanceTransactions, fetchFundRequests } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 /* ─── Quick Actions ─── */
 const quickActions = [
@@ -140,10 +141,7 @@ export default function FinanceDashboardPage() {
             <Plus className="w-4 h-4" />
             Add Expense
           </Link>
-          <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Financial Report
-          </button>
+          <ExportMenu data={() => transactions.map((t: any) => ({ Date: t.date || t.created_at, Description: t.description, Type: t.type, Category: t.category || '', Amount: t.amount, Reference: t.reference || '' }))} filename="finance_report" label="Export Financial Report" />
         </div>
       </div>
 

@@ -29,7 +29,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { supabase } from "../lib/supabase";
-import { fetchDashboardStats, fetchRecentTransactions, fetchLoanApplications, fetchFundRequests, fetchAuditLog } from "../lib/db";
+import { fetchDashboardStats, fetchRecentTransactions, fetchLoanApplications, fetchFundRequests, fetchAuditLog, fetchSavingsVsLoansChartData } from "../lib/db";
 import { type UserRole, ROLE_LABELS } from "../auth/types";
 
 /* ─── Chart data placeholder (populated from real data) ─── */
@@ -258,6 +258,7 @@ export default function DashboardPage() {
   const [urgentRequests, setUrgentRequests] = useState<any[]>([]);
   const [activityLog, setActivityLog] = useState<any[]>([]);
   const [chartData, setChartData] = useState(defaultChartData);
+  const [chartRange, setChartRange] = useState<"1Y" | "6M" | "3M">("1Y");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -267,22 +268,38 @@ export default function DashboardPage() {
   async function loadDashboard() {
     try {
       setLoading(true);
-      const [dashStats, loans, fundReqs, auditRes] = await Promise.all([
+      const [dashStats, loans, fundReqs, auditRes, rawChart] = await Promise.all([
         fetchDashboardStats(),
         fetchLoanApplications({ page: 1, pageSize: 5 }),
         fetchFundRequests({ status: "pending", page: 1, pageSize: 3 }),
         fetchAuditLog({ page: 1, pageSize: 5 }),
+        fetchSavingsVsLoansChartData(),
       ]);
       setStats(dashStats);
       setRecentLoans(loans.data);
       setUrgentRequests(fundReqs.data);
       setActivityLog(auditRes.data);
+      setChartData(rawChart);
     } catch (err) {
       console.error("Failed to load dashboard:", err);
     } finally {
       setLoading(false);
     }
   }
+
+  const filteredChartData = (() => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    if (chartRange === "3M") {
+      const start = Math.max(currentMonth - 2, 0);
+      return chartData.slice(start, currentMonth + 1);
+    }
+    if (chartRange === "6M") {
+      const start = Math.max(currentMonth - 5, 0);
+      return chartData.slice(start, currentMonth + 1);
+    }
+    return chartData;
+  })();
 
   const fmt = (n: number) => {
     if (n >= 1e9) return `₦ ${(n / 1e9).toFixed(1)}B`;
@@ -363,11 +380,12 @@ export default function DashboardPage() {
               </p>
             </div>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
-              {["1Y", "6M", "3M"].map((t) => (
+              {(["1Y", "6M", "3M"] as const).map((t) => (
                 <button
                   key={t}
+                  onClick={() => setChartRange(t)}
                   className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
-                    t === "1Y"
+                    t === chartRange
                       ? "bg-white text-navy-900 shadow-sm"
                       : "text-gray-400 hover:text-navy-900"
                   }`}
@@ -379,7 +397,7 @@ export default function DashboardPage() {
           </div>
           <div className="h-64 mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
+              <AreaChart data={filteredChartData}>
                 <defs>
                   <linearGradient id="savingsGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#109050" stopOpacity={0.15} />
@@ -401,6 +419,11 @@ export default function DashboardPage() {
                   tick={{ fontSize: 10, fill: "#9ca3af" }}
                   axisLine={false}
                   tickLine={false}
+                  tickFormatter={(v: number) => {
+                    if (v >= 1e6) return `₦${(v / 1e6).toFixed(1)}M`;
+                    if (v >= 1e3) return `₦${(v / 1e3).toFixed(0)}K`;
+                    return `₦${v}`;
+                  }}
                 />
                 <Tooltip
                   contentStyle={{

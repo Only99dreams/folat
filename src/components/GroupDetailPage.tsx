@@ -16,6 +16,8 @@ import {
   Crown,
   UserX,
   Check,
+  ArrowUpCircle,
+  ArrowDownCircle,
 } from "lucide-react";
 import {
   AreaChart,
@@ -26,7 +28,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { fetchGroup, fetchGroupMembers, fetchMembers, addGroupMember, removeGroupMember, updateGroup } from "../lib/db";
+import { fetchGroup, fetchGroupMembers, fetchMembers, addGroupMember, removeGroupMember, updateGroup, fetchSavingsTransactions, fetchLoanApplications, fetchAuditLog } from "../lib/db";
 
 /* ─── Chart Data (placeholder — will be dynamic when backend supports it) ─── */
 const performanceData: { month: string; savings: number; loans: number; repayments: number }[] = [];
@@ -56,6 +58,11 @@ export default function GroupDetailPage() {
   /* ── Remove member ── */
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
 
+  /* ── Tab data ── */
+  const [groupSavingsTxns, setGroupSavingsTxns] = useState<any[]>([]);
+  const [groupLoans, setGroupLoans] = useState<any[]>([]);
+  const [groupActivity, setGroupActivity] = useState<any[]>([]);
+
   const reload = useCallback(async () => {
     if (!id) return;
     try {
@@ -63,6 +70,23 @@ export default function GroupDetailPage() {
       setGroup(g);
       const m = await fetchGroupMembers(id);
       setMembers(m);
+
+      // Fetch savings, loans, and activity for group members
+      const memberIds = m.map((gm: any) => gm.member_id).filter(Boolean);
+      if (memberIds.length > 0) {
+        const [savingsResults, loansResult, auditRes] = await Promise.all([
+          Promise.all(memberIds.map((mid: string) => fetchSavingsTransactions({ member_id: mid, pageSize: 20 }).catch(() => ({ data: [] })))),
+          fetchLoanApplications({ pageSize: 100 }),
+          fetchAuditLog({ page: 1, pageSize: 30 }),
+        ]);
+        const allSavings = savingsResults.flatMap((r: any) => r.data);
+        allSavings.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        setGroupSavingsTxns(allSavings.slice(0, 50));
+
+        const memberIdSet = new Set(memberIds);
+        setGroupLoans(loansResult.data.filter((l: any) => memberIdSet.has(l.member_id)));
+        setGroupActivity(auditRes.data.filter((a: any) => a.entity_id === id || memberIdSet.has(a.entity_id)));
+      }
     } catch (err) {
       console.error(err);
     }
@@ -712,11 +736,137 @@ export default function GroupDetailPage() {
         </div>
       )}
 
-      {activeTab !== "Overview" && activeTab !== "Members" && (
-        <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
-          <p className="text-gray-400 text-sm">
-            {activeTab} content coming soon.
-          </p>
+      {/* ═══════════ Savings Tab ═══════════ */}
+      {activeTab === "Savings" && (
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <h3 className="text-base font-bold text-navy-900 mb-4">Group Savings Transactions</h3>
+          {groupSavingsTxns.length === 0 ? (
+            <p className="text-center py-8 text-gray-400 text-sm">No savings transactions found for group members.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] tracking-[0.1em] uppercase text-gray-400 border-b border-gray-100">
+                    <th className="pb-3 font-semibold">Date</th>
+                    <th className="pb-3 font-semibold">Member</th>
+                    <th className="pb-3 font-semibold">Type</th>
+                    <th className="pb-3 font-semibold">Amount</th>
+                    <th className="pb-3 font-semibold">Balance After</th>
+                    <th className="pb-3 font-semibold">Method</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {groupSavingsTxns.map((txn: any) => (
+                    <tr key={txn.id} className="border-b border-gray-50 last:border-0">
+                      <td className="py-3 text-gray-500 text-xs">{new Date(txn.created_at).toLocaleDateString()}</td>
+                      <td className="py-3 font-medium text-navy-900 text-xs">
+                        {txn.member ? `${txn.member.first_name} ${txn.member.last_name}` : "—"}
+                      </td>
+                      <td className="py-3">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                          txn.type === "deposit" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
+                        }`}>
+                          {txn.type === "deposit" ? <ArrowUpCircle className="w-3 h-3" /> : <ArrowDownCircle className="w-3 h-3" />}
+                          {txn.type}
+                        </span>
+                      </td>
+                      <td className={`py-3 font-semibold ${txn.type === "deposit" ? "text-green-600" : "text-red-600"}`}>
+                        {txn.type === "deposit" ? "+" : "-"}₦{Number(txn.amount).toLocaleString()}
+                      </td>
+                      <td className="py-3 text-navy-900 font-medium">₦{Number(txn.balance_after).toLocaleString()}</td>
+                      <td className="py-3 text-gray-500 text-xs capitalize">{txn.payment_method || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════ Loans Tab ═══════════ */}
+      {activeTab === "Loans" && (
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <h3 className="text-base font-bold text-navy-900 mb-4">Group Loan Applications</h3>
+          {groupLoans.length === 0 ? (
+            <p className="text-center py-8 text-gray-400 text-sm">No loan applications found for group members.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead>
+                  <tr className="text-[10px] tracking-[0.1em] uppercase text-gray-400 border-b border-gray-100">
+                    <th className="pb-3 font-semibold">Loan ID</th>
+                    <th className="pb-3 font-semibold">Member</th>
+                    <th className="pb-3 font-semibold">Type</th>
+                    <th className="pb-3 font-semibold">Amount</th>
+                    <th className="pb-3 font-semibold">Status</th>
+                    <th className="pb-3 font-semibold">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {groupLoans.map((loan: any) => {
+                    const statusCls: Record<string, string> = {
+                      pending: "bg-yellow-100 text-yellow-700",
+                      approved: "bg-green-100 text-green-700",
+                      rejected: "bg-red-100 text-red-700",
+                      active: "bg-blue-100 text-blue-700",
+                      disbursed: "bg-green-100 text-green-700",
+                      completed: "bg-gray-100 text-gray-700",
+                      defaulted: "bg-red-100 text-red-700",
+                    };
+                    return (
+                      <tr key={loan.id} className="border-b border-gray-50 last:border-0">
+                        <td className="py-3 font-medium text-navy-900 text-xs">{loan.loan_id}</td>
+                        <td className="py-3 text-gray-600 text-xs">
+                          {loan.member ? `${loan.member.first_name} ${loan.member.last_name}` : "—"}
+                        </td>
+                        <td className="py-3 text-gray-500 text-xs capitalize">{loan.loan_type}</td>
+                        <td className="py-3 font-semibold text-navy-900">₦{Number(loan.amount_approved ?? loan.amount_requested).toLocaleString()}</td>
+                        <td className="py-3">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${statusCls[loan.status] || "bg-gray-100 text-gray-600"}`}>
+                            {loan.status}
+                          </span>
+                        </td>
+                        <td className="py-3 text-gray-400 text-xs">{new Date(loan.created_at).toLocaleDateString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════ Activity Tab ═══════════ */}
+      {activeTab === "Activity" && (
+        <div className="bg-white rounded-xl border border-gray-100 p-6">
+          <h3 className="text-base font-bold text-navy-900 mb-4">Group Activity</h3>
+          {groupActivity.length === 0 ? (
+            <p className="text-center py-8 text-gray-400 text-sm">No activity recorded for this group yet.</p>
+          ) : (
+            <div className="space-y-4">
+              {groupActivity.map((a: any) => {
+                const ago = (() => {
+                  const mins = Math.floor((Date.now() - new Date(a.created_at).getTime()) / 60000);
+                  if (mins < 60) return `${mins} mins ago`;
+                  if (mins < 1440) return `${Math.floor(mins / 60)} hours ago`;
+                  return `${Math.floor(mins / 1440)} days ago`;
+                })();
+                return (
+                  <div key={a.id} className="flex items-start gap-3 border-b border-gray-50 pb-3 last:border-0">
+                    <span className="w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 bg-green-500" />
+                    <div>
+                      <p className="text-xs text-navy-900 font-medium">
+                        {a.user?.full_name || "System"} — {a.action} {a.entity_type}
+                      </p>
+                      <p className="text-[10px] text-gray-400">{ago} · {new Date(a.created_at).toLocaleString()}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

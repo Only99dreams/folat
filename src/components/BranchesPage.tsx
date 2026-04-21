@@ -14,6 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchBranches } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 export default function BranchesPage() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -46,10 +47,7 @@ export default function BranchesPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          <ExportMenu data={() => branches.map((b: any) => ({ Name: b.name, Code: b.code || '', Address: b.address || '', Phone: b.phone || '', Manager: b.manager || '', Status: b.status, Created: b.created_at }))} filename="branches" label="Export" />
           <Link to="/branches/add" className="flex items-center gap-2 px-4 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
             <Plus className="w-4 h-4" />
             Add Branch

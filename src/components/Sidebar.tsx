@@ -43,7 +43,6 @@ const operations: NavItem[] = [
     permission: "members.view",
     children: [
       { label: "All Members", path: "/members", permission: "members.view" },
-      { label: "Add Member", path: "/members/add-cooperative", permission: "members.add" },
     ],
   },
   {

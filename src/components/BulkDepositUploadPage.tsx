@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   Download,
@@ -8,7 +8,8 @@ import {
   Loader2,
   CheckCircle,
 } from "lucide-react";
-import { fetchMembers, recordDeposit } from "../lib/db";
+import { recordDeposit } from "../lib/db";
+import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/useAuth";
 
 /* ─── Preview Row Type ─── */
@@ -29,13 +30,17 @@ const statusBadge = (status: PreviewRow["status"]) => {
 export default function BulkDepositUploadPage() {
   const navigate = useNavigate();
   const { profile } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([]);
   const [parsing, setParsing] = useState(false);
+  const [parseProgress, setParseProgress] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadResult, setUploadResult] = useState<{ success: number; failed: number } | null>(null);
+  const [parseError, setParseError] = useState("");
 
   const downloadTemplate = () => {
     const csv = "member_id,amount,date\nFOL-2025-0001,5000,2026-03-31\nFOL-2025-0002,10000,2026-03-31\n";
@@ -48,15 +53,40 @@ export default function BulkDepositUploadPage() {
     URL.revokeObjectURL(url);
   };
 
+  /* Look up a member by exact member_id using a direct DB query */
+  const lookupMember = async (memberId: string): Promise<{ id: string; name: string } | null> => {
+    try {
+      const { data, error } = await supabase
+        .from("members")
+        .select("id, first_name, last_name, member_id")
+        .eq("member_id", memberId)
+        .maybeSingle();
+      if (error || !data) return null;
+      return { id: data.id, name: `${data.first_name} ${data.last_name}` };
+    } catch {
+      return null;
+    }
+  };
+
   const parseCSV = async (csvFile: File) => {
     setParsing(true);
+    setParseError("");
+    setParseProgress("Reading file...");
     try {
       const text = await csvFile.text();
       const lines = text.split(/\r?\n/).filter((l) => l.trim());
-      if (lines.length < 2) { setParsing(false); return; }
-      // Expect: member_id, amount, date (optional)
+      if (lines.length < 2) {
+        setParseError("CSV file must have a header row and at least one data row.");
+        setParsing(false);
+        setParseProgress("");
+        return;
+      }
+
       const rows: PreviewRow[] = [];
+      const totalDataRows = lines.length - 1;
+
       for (let i = 1; i < lines.length; i++) {
+        setParseProgress(`Validating row ${i} of ${totalDataRows}...`);
         const cols = lines[i].split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
         const memberId = cols[0] || "";
         const amountStr = cols[1] || "";
@@ -65,21 +95,16 @@ export default function BulkDepositUploadPage() {
 
         if (!memberId) continue;
 
-        // Look up member in DB
         let memberDbId: string | null = null;
         let name = "Unknown";
         let status: PreviewRow["status"] = "Valid";
 
-        try {
-          const { data } = await fetchMembers({ search: memberId });
-          const match = data.find((m: any) => m.member_id === memberId);
-          if (match) {
-            memberDbId = match.id;
-            name = `${match.first_name} ${match.last_name}`;
-          } else {
-            status = "Invalid ID";
-          }
-        } catch {
+        // Exact lookup by member_id
+        const member = await lookupMember(memberId);
+        if (member) {
+          memberDbId = member.id;
+          name = member.name;
+        } else {
           status = "Invalid ID";
         }
 
@@ -89,8 +114,10 @@ export default function BulkDepositUploadPage() {
       }
       setPreviewRows(rows);
       setShowPreview(true);
+      setParseProgress("");
     } catch (err) {
       console.error("CSV parse error:", err);
+      setParseError("Failed to parse CSV file. Please check the format.");
     }
     setParsing(false);
   };
@@ -118,22 +145,26 @@ export default function BulkDepositUploadPage() {
 
   const handleUpload = async () => {
     setUploading(true);
+    setUploadProgress(0);
     let success = 0;
     let failed = 0;
-    for (const row of validRows) {
+    for (let i = 0; i < validRows.length; i++) {
+      const row = validRows[i];
       if (!row.memberDbId) { failed++; continue; }
       try {
         await recordDeposit({
           member_id: row.memberDbId,
           amount: row.amount,
           payment_method: "bank_transfer",
-          notes: "Bulk upload deposit",
+          notes: `Bulk upload deposit – ${row.date}`,
           recorded_by: profile?.id ?? "",
         });
         success++;
-      } catch {
+      } catch (err) {
+        console.error(`Bulk deposit failed for ${row.memberId}:`, err);
         failed++;
       }
+      setUploadProgress(Math.round(((i + 1) / validRows.length) * 100));
     }
     setUploadResult({ success, failed });
     setUploading(false);
@@ -161,13 +192,14 @@ export default function BulkDepositUploadPage() {
       </div>
 
       {/* ═══════════ Upload Area ═══════════ */}
-      <label
+      <div
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleFileDrop}
+        onClick={() => fileInputRef.current?.click()}
         className={`flex flex-col items-center justify-center w-full py-14 border-2 border-dashed rounded-xl cursor-pointer transition-colors mb-6 ${
           dragOver
             ? "border-navy-900 bg-navy-50"
@@ -178,24 +210,32 @@ export default function BulkDepositUploadPage() {
           <FileUp className="w-7 h-7 text-navy-900" />
         </div>
         <p className="text-base font-semibold text-navy-900">
-          {parsing ? "Parsing CSV..." : file ? file.name : "Drag and drop CSV file"}
+          {parsing ? (parseProgress || "Parsing CSV...") : file ? file.name : "Drag and drop CSV file"}
         </p>
         <p className="text-sm text-gray-400 mt-1">
           or click to browse from your computer
         </p>
-        <button
-          type="button"
-          className="mt-4 px-5 py-2 bg-navy-900 text-white rounded-lg text-sm font-semibold hover:bg-navy-800 transition-colors"
+        <span
+          className="mt-4 px-5 py-2 bg-navy-900 text-white rounded-lg text-sm font-semibold hover:bg-navy-800 transition-colors inline-block"
         >
           Select File
-        </button>
+        </span>
         <input
+          ref={fileInputRef}
           type="file"
           accept=".csv"
           className="hidden"
           onChange={handleFileSelect}
         />
-      </label>
+      </div>
+
+      {/* ═══════════ Parse Error ═══════════ */}
+      {parseError && (
+        <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-5 py-4 mb-6">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <p className="text-sm text-red-700">{parseError}</p>
+        </div>
+      )}
 
       {/* ═══════════ Validation Banner ═══════════ */}
       {showPreview && errorCount > 0 && (
@@ -283,11 +323,27 @@ export default function BulkDepositUploadPage() {
 
       {/* ═══════════ Upload Result ═══════════ */}
       {uploadResult && (
-        <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6">
-          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-bold text-green-700">Upload Complete</p>
-            <p className="text-sm text-green-600">{uploadResult.success} deposits recorded successfully. {uploadResult.failed > 0 ? `${uploadResult.failed} failed.` : ""}</p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6 gap-3">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-green-700">Upload Complete</p>
+              <p className="text-sm text-green-600">{uploadResult.success} deposits recorded successfully. {uploadResult.failed > 0 ? `${uploadResult.failed} failed.` : ""}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate("/savings/transactions")}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+            >
+              View Transactions
+            </button>
+            <button
+              onClick={() => { setFile(null); setShowPreview(false); setPreviewRows([]); setUploadResult(null); setUploadProgress(0); if (fileInputRef.current) fileInputRef.current.value = ""; }}
+              className="px-4 py-2 border border-green-300 text-green-700 rounded-lg text-sm font-medium hover:bg-green-100 transition-colors"
+            >
+              Upload Another
+            </button>
           </div>
         </div>
       )}
@@ -306,7 +362,7 @@ export default function BulkDepositUploadPage() {
           className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
         >
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-          {uploading ? `Uploading... (${validRows.length} deposits)` : `Confirm Upload (${validRows.length} valid)`}
+          {uploading ? `Uploading... ${uploadProgress}%` : `Confirm Upload (${validRows.length} valid)`}
         </button>
       </div>
     </div>

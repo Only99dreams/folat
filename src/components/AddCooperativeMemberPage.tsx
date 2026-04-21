@@ -12,7 +12,7 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import { createMember, generateMemberId, fetchBranches, fetchGroups } from "../lib/db";
+import { createMember, generateMemberId, fetchBranches, fetchGroups, uploadFile, createDocument } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 
 export default function AddCooperativeMemberPage() {
@@ -73,7 +73,7 @@ export default function AddCooperativeMemberPage() {
       // Generate a fresh member ID at submit time to avoid duplicates on retry
       const freshMemberId = await generateMemberId();
       setMemberId(freshMemberId);
-      await createMember({
+      const memberData = await createMember({
         member_id: freshMemberId,
         member_type: "cooperative",
         first_name: firstName,
@@ -95,6 +95,22 @@ export default function AddCooperativeMemberPage() {
         created_by: user?.id,
         status: "active",
       });
+      // Upload ID document if provided
+      if (idFile && memberData?.id) {
+        try {
+          const url = await uploadFile("documents", `members/${memberData.id}/id-card-${idFile.name}`, idFile);
+          await createDocument({
+            owner_type: "member",
+            owner_id: memberData.id,
+            document_type: "id_card",
+            name: idFile.name,
+            file_url: url,
+            file_size: idFile.size,
+            mime_type: idFile.type,
+            uploaded_by: user?.id,
+          });
+        } catch (e) { console.error("Document upload failed:", e); }
+      }
       navigate("/members");
     } catch (err: any) {
       setError(err.message || "Failed to create member.");

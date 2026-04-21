@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { Search, ShieldCheck, Loader2 } from "lucide-react";
+import { Search, ShieldCheck, Loader2, Download, FileText } from "lucide-react";
 import { fetchMembers, fetchSavingsAccount, fetchSavingsTransactions } from "../lib/db";
 
 const periods = ["30d", "3m", "6m", "Custom"] as const;
@@ -120,7 +120,7 @@ export default function SavingsStatementPage() {
           </div>
         </div>
 
-        {/* Period Toggle */}
+        {/* Period Toggle + Export */}
         <div className="flex items-center justify-between mt-6 mb-6">
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
             {periods.map((p) => (
@@ -129,7 +129,42 @@ export default function SavingsStatementPage() {
               >{p}</button>
             ))}
           </div>
-          <p className="text-xs text-gray-400">Generated on: {new Date().toLocaleDateString("en-NG")}</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                const rows = transactions.map((t: any) => ({
+                  Date: new Date(t.created_at).toLocaleDateString("en-NG"),
+                  Type: t.type === "deposit" ? "Deposit" : "Withdrawal",
+                  Description: t.description || "",
+                  Reference: t.transaction_id,
+                  Amount: `${t.type === "deposit" ? "+" : "-"}${Number(t.amount).toFixed(2)}`,
+                  Balance: Number(t.balance_after ?? 0).toFixed(2),
+                }));
+                import("../lib/exportUtils").then((m) => m.downloadCSV(rows, `savings_statement_${selectedMember.member_id}`));
+              }}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              CSV
+            </button>
+            <button
+              onClick={() => {
+                const rows = transactions.map((t: any) => ({
+                  Date: new Date(t.created_at).toLocaleDateString("en-NG"),
+                  Type: t.type === "deposit" ? "Deposit" : "Withdrawal",
+                  Description: t.description || "",
+                  Reference: t.transaction_id,
+                  Amount: `${t.type === "deposit" ? "+" : "-"}${Number(t.amount).toFixed(2)}`,
+                  Balance: Number(t.balance_after ?? 0).toFixed(2),
+                }));
+                import("../lib/exportUtils").then((m) => m.downloadPDF(rows, `savings_statement_${selectedMember.member_id}`));
+              }}
+              className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors"
+            >
+              <FileText className="w-4 h-4" />
+              PDF
+            </button>
+          </div>
         </div>
 
         {/* Summary Cards */}

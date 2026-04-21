@@ -12,6 +12,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchLoanApplication } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 export default function LoanApplicationDetailPage() {
   const navigate = useNavigate();
@@ -62,14 +63,11 @@ export default function LoanApplicationDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+          <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             <Printer className="w-4 h-4" />
             Print
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          <ExportMenu data={() => { if (!loan) return []; return [{ LoanID: loan.loan_id, Member: (loan.member?.first_name || '') + ' ' + (loan.member?.last_name || ''), Amount: loan.amount, Interest: loan.interest_rate, Duration: loan.duration_months, Purpose: loan.purpose || '', Status: loan.status, Applied: loan.created_at }]; }} filename={`loan_${loan?.loan_id || ''}`} label="Export" />
           <button className="flex items-center gap-2 px-4 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
             <Edit className="w-4 h-4" />
             Edit

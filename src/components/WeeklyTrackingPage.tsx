@@ -13,6 +13,7 @@ import {
   X,
   BookOpen,
 } from "lucide-react";
+import ExportMenu from "./ExportMenu";
 import { fetchWeeklyPayments, recordWeeklyPayment, fetchGroups, fetchBranches, fetchMembers } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 
@@ -200,10 +201,7 @@ export default function WeeklyTrackingPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          <ExportMenu data={() => payments.map((p: any) => ({ Member: p.member?.first_name + ' ' + p.member?.last_name, Group: p.group?.name || '', Week: p.week_number, Amount: p.amount, Status: p.status, Date: p.payment_date }))} filename="weekly_tracking" label="Export" />
           <button
             onClick={() => setShowRecord(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"

@@ -86,15 +86,15 @@ export default function SavingsTransactionsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+          <button onClick={() => { import('../lib/exportUtils').then(m => m.downloadCSV(transactions.map((t: any) => ({ TXID: t.transaction_id, Date: new Date(t.created_at).toLocaleDateString(), Member: (t.member?.first_name || '') + ' ' + (t.member?.last_name || ''), MemberID: t.member?.member_id || '', Branch: t.branch?.name || '', Type: t.type, Amount: t.amount, Balance: t.balance_after })), 'savings_transactions')) }} className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             <FileText className="w-4 h-4" />
             CSV
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+          <button onClick={() => { import('../lib/exportUtils').then(m => m.downloadCSV(transactions.map((t: any) => ({ TXID: t.transaction_id, Date: new Date(t.created_at).toLocaleDateString(), Member: (t.member?.first_name || '') + ' ' + (t.member?.last_name || ''), MemberID: t.member?.member_id || '', Branch: t.branch?.name || '', Type: t.type, Amount: t.amount, Balance: t.balance_after })), 'savings_transactions')) }} className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             <FileSpreadsheet className="w-4 h-4" />
             Excel
           </button>
-          <button className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+          <button onClick={() => { import('../lib/exportUtils').then(m => m.downloadPDF(transactions.map((t: any) => ({ TXID: t.transaction_id, Date: new Date(t.created_at).toLocaleDateString(), Member: (t.member?.first_name || '') + ' ' + (t.member?.last_name || ''), Type: t.type, Amount: Number(t.amount).toLocaleString(), Balance: Number(t.balance_after).toLocaleString() })), 'savings_transactions')) }} className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             <File className="w-4 h-4" />
             PDF
           </button>

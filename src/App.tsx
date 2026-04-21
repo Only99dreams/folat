@@ -15,6 +15,7 @@ import AddBranchPage from "./components/AddBranchPage";
 import BranchDetailPage from "./components/BranchDetailPage";
 import MembersPage from "./components/MembersPage";
 import AddCooperativeMemberPage from "./components/AddCooperativeMemberPage";
+import AddExternalCustomerPage from "./components/AddExternalCustomerPage";
 import MemberDetailPage from "./components/MemberDetailPage";
 import GroupsPage from "./components/GroupsPage";
 import CreateGroupPage from "./components/CreateGroupPage";
@@ -89,6 +90,7 @@ function App() {
               {/* Members */}
               <Route path="/members" element={<ProtectedRoute requiredPermissions={["members.view"]}><MembersPage /></ProtectedRoute>} />
               <Route path="/members/add-cooperative" element={<ProtectedRoute requiredPermissions={["members.add"]}><AddCooperativeMemberPage /></ProtectedRoute>} />
+              <Route path="/members/add-external" element={<ProtectedRoute requiredPermissions={["members.add"]}><AddExternalCustomerPage /></ProtectedRoute>} />
               <Route path="/members/:id" element={<ProtectedRoute requiredPermissions={["members.view"]}><MemberDetailPage /></ProtectedRoute>} />
 
               {/* Groups */}

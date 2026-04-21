@@ -17,6 +17,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchAttendance } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500","bg-pink-600","bg-teal-600","bg-navy-900"];
 
@@ -81,10 +82,7 @@ export default function AttendanceLogPage() {
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500" />
-          <button className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          <ExportMenu data={() => records.map((r: any) => ({ Staff: r.staff?.first_name + ' ' + r.staff?.last_name, Date: r.date, CheckIn: r.check_in, CheckOut: r.check_out, Status: r.status }))} filename="attendance_log" label="Export" className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors" />
         </div>
       </div>
 

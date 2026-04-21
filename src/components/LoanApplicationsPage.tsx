@@ -14,6 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchLoanApplications, fetchBranches } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 const avatarColors = [
   "bg-amber-100 text-amber-700",
@@ -131,10 +132,7 @@ export default function LoanApplicationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export
-          </button>
+          <ExportMenu data={() => loans.map((l: any) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount, Purpose: l.purpose || '', Status: l.status, Applied: l.created_at }))} filename="loan_applications" label="Export" />
           <Link to="/loans/new" className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
             <Plus className="w-4 h-4" />
             New Application

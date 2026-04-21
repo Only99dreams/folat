@@ -14,6 +14,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchFinanceTransactions, fetchBranches } from "../lib/db";
+import ExportMenu from "./ExportMenu";
 
 const typeBadge = (type: Transaction["type"]) => {
   const styles: Record<string, string> = {
@@ -101,10 +102,7 @@ export default function FinancialLedgerPage() {
             <Plus className="w-4 h-4" />
             Add Expense
           </Link>
-          <button className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-full text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Financial Report
-          </button>
+          <ExportMenu data={() => transactions.map((t: any) => ({ Date: t.date || t.created_at, Description: t.description, Type: t.type, Category: t.category || '', Amount: t.amount, Reference: t.reference || '' }))} filename="financial_ledger" label="Export Financial Report" className="flex items-center gap-2 px-5 py-2.5 border border-gray-200 rounded-full text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors" />
         </div>
       </div>
 

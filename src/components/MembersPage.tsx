@@ -5,7 +5,6 @@ import {
   ChevronDown,
   Eye,
   Pencil,
-  MoreHorizontal,
   Users,
   UserPlus,
   ChevronLeft,
@@ -126,14 +125,38 @@ export default function MembersPage() {
             Manage cooperative members and their records.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <Link
-            to="/members/add-cooperative"
-            className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
-          >
-            <Users className="w-4 h-4" />
-            Add Member
-          </Link>
+        <div className="flex flex-wrap items-center gap-3 relative">
+          <div className="relative group">
+            <button
+              className="flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add Member
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+            <div className="absolute right-0 mt-1 w-56 bg-white rounded-xl border border-gray-100 shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-20">
+              <Link
+                to="/members/add-cooperative"
+                className="flex items-center gap-3 px-4 py-3 text-sm text-navy-900 hover:bg-gray-50 rounded-t-xl transition-colors"
+              >
+                <Users className="w-4 h-4 text-green-600" />
+                <div>
+                  <p className="font-semibold">Cooperative Member</p>
+                  <p className="text-[11px] text-gray-400">Society / group member</p>
+                </div>
+              </Link>
+              <Link
+                to="/members/add-external"
+                className="flex items-center gap-3 px-4 py-3 text-sm text-navy-900 hover:bg-gray-50 rounded-b-xl border-t border-gray-50 transition-colors"
+              >
+                <UserPlus className="w-4 h-4 text-blue-600" />
+                <div>
+                  <p className="font-semibold">External Customer</p>
+                  <p className="text-[11px] text-gray-400">Non-cooperative customer</p>
+                </div>
+              </Link>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -345,18 +368,13 @@ export default function MembersPage() {
                       >
                         <Eye className="w-4 h-4" />
                       </Link>
-                      <button
+                      <Link
+                        to={`/members/${m.id}?edit=true`}
                         title="Edit"
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
                       >
                         <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        title="More"
-                        className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
-                      >
-                        <MoreHorizontal className="w-4 h-4" />
-                      </button>
+                      </Link>
                     </div>
                   </td>
                 </tr>
@@ -389,32 +407,33 @@ export default function MembersPage() {
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            {[1, 2, 3].map((p) => (
-              <button
-                key={p}
-                onClick={() => setCurrentPage(p)}
-                className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
-                  currentPage === p
-                    ? "bg-navy-900 text-white"
-                    : "text-gray-600 hover:bg-gray-100"
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-
-            <span className="px-1 text-gray-400 text-sm">…</span>
-
-            <button
-              onClick={() => setCurrentPage(totalPages)}
-              className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
-                currentPage === totalPages
-                  ? "bg-navy-900 text-white"
-                  : "text-gray-600 hover:bg-gray-100"
-              }`}
-            >
-              {totalPages}
-            </button>
+            {(() => {
+              const pages: (number | string)[] = [];
+              for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+                  pages.push(i);
+                } else if (pages[pages.length - 1] !== "...") {
+                  pages.push("...");
+                }
+              }
+              return pages.map((p, idx) =>
+                p === "..." ? (
+                  <span key={`dots-${idx}`} className="px-1 text-gray-400 text-sm">…</span>
+                ) : (
+                  <button
+                    key={p}
+                    onClick={() => setCurrentPage(p as number)}
+                    className={`w-9 h-9 rounded-lg text-sm font-medium transition-colors ${
+                      currentPage === p
+                        ? "bg-navy-900 text-white"
+                        : "text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                )
+              );
+            })()}
 
             <button
               onClick={() =>

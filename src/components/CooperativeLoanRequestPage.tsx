@@ -13,9 +13,9 @@ import {
 } from "lucide-react";
 import {
   fetchMembers,
-  fetchGroups,
   fetchBranches,
   fetchSavingsAccount,
+  fetchSavingsMonths,
   generateLoanId,
   createLoanApplication,
   uploadFile,
@@ -34,19 +34,18 @@ export default function CooperativeLoanRequestPage() {
   const [searching, setSearching] = useState(false);
   const [selectedMember, setSelectedMember] = useState<any>(null);
   const [fatherName, setFatherName] = useState("");
-  const [groups, setGroups] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
-  const [group, setGroup] = useState("");
   const [branchId, setBranchId] = useState("");
   const [savingsBalance, setSavingsBalance] = useState("0.00");
   const [savingsRaw, setSavingsRaw] = useState(0);
+  const [savingsMonths, setSavingsMonths] = useState(0);
 
   // Loan details
   const [loanType, setLoanType] = useState("personal");
   const [loanCycle, setLoanCycle] = useState("");
   const [purposeScheme, setPurposeScheme] = useState("");
-  const [interestRate, setInterestRate] = useState("15");
-  const [durationMonths, setDurationMonths] = useState("12");
+  const interestRate = 10; // locked at 10% flat for cooperative loans
+  const [durationMonths, setDurationMonths] = useState("10");
 
   // Disbursement
   const [disbursementDate, setDisbursementDate] = useState("");
@@ -71,7 +70,6 @@ export default function CooperativeLoanRequestPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchGroups().then((r) => setGroups(r.data)).catch(() => {});
     fetchBranches().then((data) => setBranches(data)).catch(() => {});
   }, []);
 
@@ -100,28 +98,30 @@ export default function CooperativeLoanRequestPage() {
     setMemberSearch(`${m.first_name} ${m.last_name} (${m.member_id})`);
     setSearchResults([]);
     if (m.branch_id) setBranchId(m.branch_id);
-    if (m.group_id) setGroup(m.group_id);
     try {
-      const acct = await fetchSavingsAccount(m.id);
+      const [acct, months] = await Promise.all([
+        fetchSavingsAccount(m.id),
+        fetchSavingsMonths(m.id),
+      ]);
       if (acct) {
         const bal = Number(acct.balance);
         setSavingsBalance(bal.toLocaleString());
         setSavingsRaw(bal);
       }
+      setSavingsMonths(months);
     } catch {}
   };
 
-  // Calculations
-  const principal =
-    parseFloat(principalAmount.replace(/,/g, "")) || 0;
-  const rate = parseFloat(interestRate) || 0;
-  const months = parseInt(durationMonths) || 12;
-  const totalInterest = principal * (rate / 100) * (months / 12);
+  // Calculations — 10% flat interest, 6–12 month duration
+  const principal = parseFloat(principalAmount.replace(/,/g, "")) || 0;
+  const months = parseInt(durationMonths) || 10;
+  const maxLoanAmount = savingsRaw * 2;
+  const totalInterest = principal * 0.10; // flat 10%
   const totalRepayable = principal + totalInterest;
   const monthlyRepayment = months > 0 ? totalRepayable / months : 0;
 
-  // Eligibility: cooperative member must have savings > 0
-  const isEligible = selectedMember && savingsRaw > 0;
+  // Eligibility: must have ≥ 6 months of savings
+  const isEligible = selectedMember && savingsRaw > 0 && savingsMonths >= 6;
 
   const handleSubmit = async () => {
     if (!selectedMember) {
@@ -132,12 +132,20 @@ export default function CooperativeLoanRequestPage() {
       setError("Only cooperative members can use this form. For external customers, use the standard loan application.");
       return;
     }
+    if (savingsMonths < 6) {
+      setError(`This member has only ${savingsMonths} month(s) of savings. At least 6 months of savings are required to qualify for a cooperative loan.`);
+      return;
+    }
     if (savingsRaw <= 0) {
-      setError("This member has no active savings. Members must have an active savings balance to apply for a loan.");
+      setError("This member has no active savings balance.");
       return;
     }
     if (principal <= 0) {
-      setError("Please enter a valid principal amount");
+      setError("Please enter a valid principal amount.");
+      return;
+    }
+    if (principal > maxLoanAmount) {
+      setError(`Maximum loan amount is ₦${maxLoanAmount.toLocaleString()} (2× your savings balance of ₦${savingsRaw.toLocaleString()}).`);
       return;
     }
     if (!consentChecked) {
@@ -176,7 +184,7 @@ export default function CooperativeLoanRequestPage() {
         branch_id: branchId || null,
         loan_type: loanType,
         amount_requested: principal,
-        interest_rate: rate,
+        interest_rate: interestRate,
         duration_months: months,
         service_charge: 0,
         purpose: purposeScheme,
@@ -187,7 +195,7 @@ export default function CooperativeLoanRequestPage() {
         loan_cycle: parseInt(loanCycle) || 1,
         co_recommendation: coRecommendation,
         father_name: fatherName,
-        group_id: group || null,
+        group_id: null,
         signature_url: signatureUrl,
         guarantor1_name: guarantor1Name,
         guarantor1_status: guarantor1Phone,
@@ -224,9 +232,11 @@ export default function CooperativeLoanRequestPage() {
         <div className="text-sm text-blue-700">
           <p className="font-medium mb-1">Cooperative Loan Eligibility</p>
           <ul className="list-disc list-inside space-y-0.5 text-xs text-blue-600">
-            <li>Member must be a registered cooperative member</li>
-            <li>Member must have an active savings account with a positive balance</li>
-            <li>Guarantor information is optional for cooperative members</li>
+            <li>Only registered cooperative staff members can apply</li>
+            <li>Member must have saved for at least <strong>6 months</strong></li>
+            <li>Maximum loan = <strong>2× savings balance</strong></li>
+            <li>Interest rate is fixed at <strong>10% flat</strong></li>
+            <li>Repayment term: <strong>6 – 12 months</strong> (member's choice)</li>
           </ul>
         </div>
       </div>
@@ -301,24 +311,6 @@ export default function CooperativeLoanRequestPage() {
 
           {/* Row 2 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            <div className="relative">
-              <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                Name of Group
-              </label>
-              <select
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="">Select Group</option>
-                {groups.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
-            </div>
             <div>
               <label className="block text-sm font-medium text-navy-900 mb-1.5">
                 Branch
@@ -358,9 +350,14 @@ export default function CooperativeLoanRequestPage() {
                   />
                 )}
               </div>
-              {selectedMember && savingsRaw <= 0 && (
+              {selectedMember && savingsMonths < 6 && (
                 <p className="text-xs text-red-500 mt-1">
-                  No active savings — member is not eligible
+                  Only {savingsMonths} month(s) saved — needs 6 months minimum
+                </p>
+              )}
+              {selectedMember && savingsMonths >= 6 && (
+                <p className="text-xs text-green-600 mt-1">
+                  ✓ {savingsMonths} months saved — eligible. Max loan: ₦{maxLoanAmount.toLocaleString()}
                 </p>
               )}
             </div>
@@ -412,41 +409,43 @@ export default function CooperativeLoanRequestPage() {
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
                 />
               </div>
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-medium text-navy-900 mb-1.5">
                   Duration (Months)
                 </label>
-                <input
-                  type="text"
+                <select
                   value={durationMonths}
                   onChange={(e) => setDurationMonths(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-                />
+                  className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+                >
+                  {[6,7,8,9,10,11,12].map((m) => (
+                    <option key={m} value={String(m)}>{m} months</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                Purpose
+                Interest Rate
               </label>
-              <textarea
-                placeholder="Briefly describe the purpose of the loan..."
-                value={purposeScheme}
-                onChange={(e) => setPurposeScheme(e.target.value)}
-                rows={2}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 resize-none"
-              />
+              <div className="flex items-center gap-2 px-4 py-2.5 border border-green-200 rounded-lg bg-green-50">
+                <span className="text-sm font-bold text-green-700">10% flat rate</span>
+                <span className="text-xs text-green-600">(fixed for all cooperative loans)</span>
+              </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                Interest Rate (%)
+                Purpose / Scheme
               </label>
-              <input
-                type="text"
-                value={interestRate}
-                onChange={(e) => setInterestRate(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+              <textarea
+                placeholder="State the purpose of the loan..."
+                value={purposeScheme}
+                onChange={(e) => setPurposeScheme(e.target.value)}
+                rows={3}
+                className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 resize-none"
               />
             </div>
           </div>
@@ -494,23 +493,26 @@ export default function CooperativeLoanRequestPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                  Total Interest
-                </label>
-                <p className="text-2xl font-bold text-navy-900">
-                  ₦
-                  {totalInterest.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
-                </p>
-                <p className="text-xs text-green-500 mt-1">
-                  Monthly repayment: ₦
-                  {monthlyRepayment.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                  })}
-                </p>
-              </div>
+              {/* Live repayment calculator */}
+              {principal > 0 && (
+                <div className="bg-navy-900/5 border border-navy-900/20 rounded-xl p-4 space-y-2">
+                  <p className="text-xs font-bold text-navy-900 uppercase tracking-wide">Repayment Breakdown</p>
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <span className="text-gray-500">Principal</span>
+                    <span className="font-semibold text-navy-900 text-right">₦{principal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="text-gray-500">Interest (10%)</span>
+                    <span className="font-semibold text-amber-600 text-right">₦{totalInterest.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="text-gray-500">Total Repayable</span>
+                    <span className="font-bold text-navy-900 text-right">₦{totalRepayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                    <span className="text-gray-500">Monthly Payment</span>
+                    <span className="font-bold text-green-600 text-right">₦{monthlyRepayment.toLocaleString(undefined, { minimumFractionDigits: 2 })}/mo</span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">over {months} month{months !== 1 ? 's' : ''}</p>
+                  {maxLoanAmount > 0 && principal > maxLoanAmount && (
+                    <p className="text-xs text-red-500 font-medium">⚠ Exceeds max loan of ₦{maxLoanAmount.toLocaleString()} (2× savings)</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

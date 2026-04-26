@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { fetchMessages, markMessageRead, sendMessage, fetchAllProfiles } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const avatarColors = ["bg-navy-900","bg-green-600","bg-blue-600","bg-amber-500","bg-purple-600","bg-pink-600","bg-teal-600"];
 
@@ -49,6 +50,44 @@ export default function MessagesPage() {
 
   useEffect(() => { loadMessages(); }, [user?.id, activeFolder]);
   useEffect(() => { loadStats(); }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const channel = supabase
+      .channel(`messages-page-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `recipient_id=eq.${user.id}`,
+        },
+        () => {
+          loadMessages();
+          loadStats();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `sender_id=eq.${user.id}`,
+        },
+        () => {
+          loadMessages();
+          loadStats();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, activeFolder]);
 
   const openCompose = () => {
     if (profiles.length === 0) {

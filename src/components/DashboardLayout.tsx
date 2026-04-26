@@ -1,10 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
-import { Bell, Mail, Menu, Search, LogOut, Check, X } from "lucide-react";
+import { Bell, Mail, Menu, Search, LogOut } from "lucide-react";
 import { Link } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { useAuth } from "../auth/useAuth";
-import { fetchNotifications, fetchUnreadNotificationCount, markNotificationRead, markAllNotificationsRead } from "../lib/db";
+import {
+  fetchNotifications,
+  fetchUnreadNotificationCount,
+  fetchUnreadMessagesCount,
+  markNotificationRead,
+  markAllNotificationsRead,
+} from "../lib/db";
+import { supabase } from "../lib/supabase";
+
+type NotificationItem = {
+  id: string;
+  title: string;
+  body: string;
+  type: "info" | "warning" | "success" | "error";
+  is_read: boolean;
+  created_at: string;
+  link?: string;
+};
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -13,29 +30,79 @@ export default function DashboardLayout() {
 
   // Notification state
   const [notifOpen, setNotifOpen] = useState(false);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
 
   const loadNotifications = useCallback(async () => {
     if (!user?.id) return;
     try {
-      const [notifs, count] = await Promise.all([
+      const [notifs, count, unreadMessages] = await Promise.all([
         fetchNotifications(user.id),
         fetchUnreadNotificationCount(user.id),
+        fetchUnreadMessagesCount(user.id),
       ]);
       setNotifications(notifs);
       setUnreadCount(count);
-    } catch {}
-  }, [user?.id]);
-
-  useEffect(() => { loadNotifications(); }, [loadNotifications]);
+      setUnreadMessagesCount(unreadMessages);
+    } catch (error) {
+      console.error("Failed to load top-bar notifications:", error);
+    }
+  }, [user]);
 
   // Poll every 30 seconds
   useEffect(() => {
+    const initialLoad = setTimeout(() => {
+      loadNotifications();
+    }, 0);
     const interval = setInterval(loadNotifications, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialLoad);
+      clearInterval(interval);
+    };
   }, [loadNotifications]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const notificationsChannel = supabase
+      .channel(`notifications-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          loadNotifications();
+        }
+      )
+      .subscribe();
+
+    const messagesChannel = supabase
+      .channel(`messages-inbox-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `recipient_id=eq.${user.id}`,
+        },
+        () => {
+          loadNotifications();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notificationsChannel);
+      supabase.removeChannel(messagesChannel);
+    };
+  }, [loadNotifications, user?.id]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -178,9 +245,14 @@ export default function DashboardLayout() {
                   </div>
                 )}
               </div>
-              <button className="relative p-2 text-gray-400 hover:text-navy-900 transition-colors hidden sm:block">
+              <Link to="/communication/messages" className="relative p-2 text-gray-400 hover:text-navy-900 transition-colors hidden sm:block">
                 <Mail className="w-5 h-5" />
-              </button>
+                {unreadMessagesCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold text-white bg-green-600 rounded-full">
+                    {unreadMessagesCount > 99 ? "99+" : unreadMessagesCount}
+                  </span>
+                )}
+              </Link>
               <div className="flex items-center gap-3 pl-2 sm:pl-4 border-l border-gray-200">
                 <Link to="/profile" className="text-right hidden sm:block hover:opacity-80 transition-opacity">
                   <p className="text-sm font-semibold text-navy-900">{user?.name ?? "User"}</p>
@@ -214,11 +286,11 @@ export default function DashboardLayout() {
             <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
             Main Database: Optimal
           </span>
-          <span className="flex items-center gap-1.5 whitespace-nowrap hidden sm:flex">
+          <span className="items-center gap-1.5 whitespace-nowrap hidden sm:flex">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
             API Service: 14ms Latency
           </span>
-          <span className="flex items-center gap-1.5 whitespace-nowrap hidden md:flex">
+          <span className="items-center gap-1.5 whitespace-nowrap hidden md:flex">
             <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
             SMS Gateway: Active
           </span>

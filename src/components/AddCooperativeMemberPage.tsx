@@ -1,323 +1,232 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  User,
-  Phone,
-  CreditCard,
   Building2,
   PiggyBank,
-  Heart,
   Users,
-  Upload,
   Loader2,
   AlertCircle,
+  Search,
+  CheckCircle2,
+  UserCheck,
+  ChevronDown,
 } from "lucide-react";
-import { createMember, generateMemberId, fetchBranches, fetchGroups, uploadFile, createDocument } from "../lib/db";
+import {
+  createMember,
+  generateMemberId,
+  fetchBranches,
+  searchStaffForCooperative,
+} from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+
+/* ─── read-only display field ─── */
+const ReadField = ({ label, value }: { label: string; value: string }) => (
+  <div>
+    <p className="text-xs font-semibold text-gray-400 mb-1 uppercase tracking-wide">{label}</p>
+    <p className="text-sm font-medium text-navy-900 px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg">
+      {value || "—"}
+    </p>
+  </div>
+);
 
 export default function AddCooperativeMemberPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  /* ── Personal Information ── */
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [gender, setGender] = useState("");
-  const [dob, setDob] = useState("");
-
-  /* ── Contact Details ── */
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [address, setAddress] = useState("");
-
-  /* ── Identification ── */
-  const [nationalId, setNationalId] = useState("");
-  const [idFile, setIdFile] = useState<File | null>(null);
+  /* ── Step 1: staff search ── */
+  const [staffSearch, setStaffSearch] = useState("");
+  const [staffResults, setStaffResults] = useState<any[]>([]);
+  const [searchingStaff, setSearchingStaff] = useState(false);
+  const [selectedStaff, setSelectedStaff] = useState<any>(null);
+  const [alreadyMember, setAlreadyMember] = useState(false);
 
   /* ── Cooperative Details ── */
   const [memberId, setMemberId] = useState("");
   const [branch, setBranch] = useState("");
-  const [group, setGroup] = useState("");
   const [joinDate, setJoinDate] = useState(new Date().toISOString().split("T")[0]);
 
   /* ── Savings Setup ── */
   const [initialDeposit, setInitialDeposit] = useState("0.00");
   const [contributionType, setContributionType] = useState("monthly");
 
-  /* ── Next of Kin ── */
-  const [kinName, setKinName] = useState("");
-  const [kinRelationship, setKinRelationship] = useState("");
-  const [kinPhone, setKinPhone] = useState("");
-
   /* ── State ── */
   const [branches, setBranches] = useState<any[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     generateMemberId().then(setMemberId).catch(console.error);
     fetchBranches().then(setBranches).catch(console.error);
-    fetchGroups().then(r => setGroups(r.data)).catch(console.error);
   }, []);
+
+  /* ── staff search ── */
+  const handleStaffSearch = useCallback(async (q: string) => {
+    setStaffSearch(q);
+    if (q.length < 2) { setStaffResults([]); return; }
+    setSearchingStaff(true);
+    try {
+      const data = await searchStaffForCooperative(q);
+      setStaffResults(data);
+    } catch { setStaffResults([]); }
+    setSearchingStaff(false);
+  }, []);
+
+  const pickStaff = (s: any) => {
+    setSelectedStaff(s);
+    setStaffSearch(`${s.first_name} ${s.last_name} (${s.staff_id})`);
+    setStaffResults([]);
+    if (s.branch_id) setBranch(s.branch_id);
+    setAlreadyMember(false);
+    setError("");
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    if (!firstName || !lastName || !phone) {
-      setError("Please fill in required fields: First Name, Last Name, Phone.");
+    if (!selectedStaff) {
+      setError("Please search and select a staff member first.");
       return;
     }
     setSubmitting(true);
     try {
-      // Generate a fresh member ID at submit time to avoid duplicates on retry
       const freshMemberId = await generateMemberId();
       setMemberId(freshMemberId);
-      const memberData = await createMember({
+      await createMember({
         member_id: freshMemberId,
         member_type: "cooperative",
-        first_name: firstName,
-        last_name: lastName,
-        gender: gender || "",
-        date_of_birth: dob || null,
-        phone,
-        email: email || "",
-        address: address || "",
-        national_id: nationalId || "",
-        branch_id: branch || null,
-        group_id: group || null,
+        staff_id: selectedStaff.id,
+        first_name: selectedStaff.first_name,
+        last_name: selectedStaff.last_name,
+        gender: selectedStaff.gender
+          ? selectedStaff.gender.charAt(0).toUpperCase() + selectedStaff.gender.slice(1).toLowerCase()
+          : "",
+        date_of_birth: selectedStaff.date_of_birth || null,
+        phone: selectedStaff.phone || "",
+        email: selectedStaff.email || "",
+        address: selectedStaff.address || "",
+        branch_id: branch || selectedStaff.branch_id || null,
+        group_id: null,
         join_date: joinDate,
-        initial_deposit: parseFloat(initialDeposit) || 0,
-        contribution_type: contributionType || "monthly",
-        nok_name: kinName || "",
-        nok_phone: kinPhone || "",
-        nok_relationship: kinRelationship || "",
+        initial_deposit: parseFloat(initialDeposit.replace(/,/g, "")) || 0,
+        contribution_type: contributionType,
         created_by: user?.id,
         status: "active",
       });
-      // Upload ID document if provided
-      if (idFile && memberData?.id) {
-        try {
-          const url = await uploadFile("documents", `members/${memberData.id}/id-card-${idFile.name}`, idFile);
-          await createDocument({
-            owner_type: "member",
-            owner_id: memberData.id,
-            document_type: "id_card",
-            name: idFile.name,
-            file_url: url,
-            file_size: idFile.size,
-            mime_type: idFile.type,
-            uploaded_by: user?.id,
-          });
-        } catch (e) { console.error("Document upload failed:", e); }
-      }
       navigate("/members");
     } catch (err: any) {
-      setError(err.message || "Failed to create member.");
+      if (err.message?.includes("unique") || err.message?.includes("duplicate")) {
+        setAlreadyMember(true);
+        setError("This staff member is already registered as a cooperative member.");
+      } else {
+        setError(err.message || "Failed to register cooperative member.");
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
-  /* ── Reusable section heading ── */
-  const SectionHeading = ({
-    icon: Icon,
-    title,
-  }: {
-    icon: React.ElementType;
-    title: string;
-  }) => (
-    <div className="flex items-center gap-2 mb-6">
-      <Icon className="w-5 h-5 text-navy-900" />
-      <h2 className="text-lg font-bold text-navy-900">{title}</h2>
-    </div>
-  );
-
-  /* ── Reusable label ── */
-  const Label = ({
-    children,
-    optional,
-  }: {
-    children: React.ReactNode;
-    optional?: boolean;
-  }) => (
-    <label className="block text-sm font-medium text-navy-900 mb-1.5">
-      {children}
-      {optional && (
-        <span className="text-gray-400 font-normal ml-1">(Optional)</span>
-      )}
-    </label>
-  );
-
   return (
     <form onSubmit={handleSubmit} className="max-w-3xl mx-auto space-y-8 pb-8">
-      {/* Error message */}
+      {/* ─── Header ─── */}
+      <div>
+        <h1 className="text-2xl font-bold text-navy-900">Register Cooperative Member</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Only active staff can be registered as cooperative members. Search by name, phone number, or staff code.
+        </p>
+      </div>
+
       {error && (
         <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
           <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
           <p className="text-sm text-red-600">{error}</p>
         </div>
       )}
-      {/* ═══════════ Personal Information ═══════════ */}
-      <section className="bg-white rounded-xl border border-gray-100 p-6">
-        <SectionHeading icon={User} title="Personal Information" />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* First Name */}
-          <div>
-            <Label>First Name</Label>
+      {/* ─── Section 1: Staff Search ─── */}
+      <section className="bg-white rounded-xl border border-gray-100 p-6 space-y-5">
+        <div className="flex items-center gap-2 mb-1">
+          <UserCheck className="w-5 h-5 text-navy-900" />
+          <h2 className="text-lg font-bold text-navy-900">Find Staff Member</h2>
+        </div>
+        <p className="text-sm text-gray-500 -mt-2">
+          Search the staff directory. Only active employees are shown. Registering here enrols them as a cooperative member.
+        </p>
+
+        <div className="relative">
+          <label className="block text-sm font-medium text-navy-900 mb-1.5">
+            Search by Name, Phone or Staff Code
+          </label>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
-              placeholder="John"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+              placeholder="e.g. Adeyemi, 08012345678, STF-001..."
+              value={staffSearch}
+              onChange={(e) => handleStaffSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
             />
+            {searchingStaff && (
+              <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 animate-spin" />
+            )}
           </div>
 
-          {/* Last Name */}
-          <div>
-            <Label>Last Name</Label>
-            <input
-              type="text"
-              placeholder="Doe"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
+          {staffResults.length > 0 && (
+            <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+              {staffResults.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => pickStaff(s)}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors"
+                >
+                  <p className="text-sm font-semibold text-navy-900">
+                    {s.first_name} {s.last_name}
+                    <span className="ml-2 text-xs font-normal text-gray-400">{s.staff_id}</span>
+                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {s.job_role || "—"} · {s.phone}
+                  </p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-          {/* Gender */}
-          <div>
-            <Label>Gender</Label>
-            <div className="relative">
-              <select
-                value={gender}
-                onChange={(e) => setGender(e.target.value)}
-                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="">Select gender</option>
-                <option>Male</option>
-                <option>Female</option>
-                <option>Other</option>
-              </select>
-              <svg
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
+        {selectedStaff && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center gap-2 text-green-700 font-semibold text-sm">
+              <CheckCircle2 className="w-4 h-4" />
+              Staff member selected — details auto-filled from HR records
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <ReadField label="Full Name" value={`${selectedStaff.first_name} ${selectedStaff.last_name}`} />
+              <ReadField label="Staff Code" value={selectedStaff.staff_id} />
+              <ReadField label="Phone" value={selectedStaff.phone} />
+              <ReadField label="Email" value={selectedStaff.email} />
+              <ReadField label="Job Role" value={selectedStaff.job_role} />
+              <ReadField label="Gender" value={selectedStaff.gender} />
             </div>
           </div>
+        )}
 
-          {/* Date of Birth */}
-          <div>
-            <Label>Date of Birth</Label>
-            <input
-              type="date"
-              value={dob}
-              onChange={(e) => setDob(e.target.value)}
-              placeholder="mm/dd/yyyy"
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
+        {alreadyMember && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+            <p className="text-sm text-amber-700">This staff member is already a cooperative member.</p>
           </div>
-        </div>
+        )}
       </section>
 
-      {/* ═══════════ Contact Details ═══════════ */}
-      <section className="bg-white rounded-xl border border-gray-100 p-6">
-        <SectionHeading icon={Phone} title="Contact Details" />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Phone Number */}
-          <div>
-            <Label>Phone Number</Label>
-            <input
-              type="tel"
-              placeholder="+1 (555) 000-0000"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
-
-          {/* Email */}
-          <div>
-            <Label>Email Address</Label>
-            <input
-              type="email"
-              placeholder="john.doe@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
-
-          {/* Residential Address — full width */}
-          <div className="md:col-span-2">
-            <Label>Residential Address</Label>
-            <textarea
-              rows={2}
-              placeholder="123 Street Name, City, State"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
+      {/* ─── Section 2: Cooperative Details ─── */}
+      <section className={`bg-white rounded-xl border border-gray-100 p-6 space-y-5 transition-opacity ${!selectedStaff ? "opacity-40 pointer-events-none" : ""}`}>
+        <div className="flex items-center gap-2 mb-1">
+          <Building2 className="w-5 h-5 text-navy-900" />
+          <h2 className="text-lg font-bold text-navy-900">Cooperative Details</h2>
         </div>
-      </section>
-
-      {/* ═══════════ Identification ═══════════ */}
-      <section className="bg-white rounded-xl border border-gray-100 p-6">
-        <SectionHeading icon={CreditCard} title="Identification" />
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* National ID Number */}
           <div>
-            <Label>National ID Number</Label>
-            <input
-              type="text"
-              placeholder="ID-000-000-000"
-              value={nationalId}
-              onChange={(e) => setNationalId(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
-
-          {/* Upload ID Card */}
-          <div>
-            <Label>Upload ID Card</Label>
-            <label className="flex items-center justify-center gap-2 w-full px-4 py-2.5 border border-dashed border-gray-300 rounded-lg text-sm text-gray-400 cursor-pointer hover:border-navy-900/40 hover:text-gray-500 transition-colors">
-              <Upload className="w-4 h-4" />
-              {idFile ? idFile.name : "Click to upload file"}
-              <input
-                type="file"
-                accept="image/*,.pdf"
-                className="hidden"
-                onChange={(e) =>
-                  setIdFile(e.target.files ? e.target.files[0] : null)
-                }
-              />
-            </label>
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════ Cooperative Details ═══════════ */}
-      <section className="bg-white rounded-xl border border-gray-100 p-6">
-        <SectionHeading icon={Building2} title="Cooperative Details" />
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Member ID — auto-generated, read-only green */}
-          <div>
-            <Label>Member ID</Label>
+            <p className="text-sm font-medium text-navy-900 mb-1.5">Member ID (auto-generated)</p>
             <input
               type="text"
               value={memberId}
@@ -326,91 +235,48 @@ export default function AddCooperativeMemberPage() {
             />
           </div>
 
-          {/* Branch */}
           <div>
-            <Label>Branch</Label>
-            <div className="relative">
-              <select
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="">Select Branch</option>
-                {branches.map((b: any) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <svg
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </div>
-          </div>
-
-          {/* Group Assignment */}
-          <div>
-            <Label optional>Group Assignment</Label>
-            <div className="relative">
-              <select
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="">Select Group</option>
-                {groups.map((g: any) => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-              <svg
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-            </div>
-          </div>
-
-          {/* Join Date */}
-          <div>
-            <Label>Join Date</Label>
+            <label className="block text-sm font-medium text-navy-900 mb-1.5">Join Date</label>
             <input
               type="date"
               value={joinDate}
               onChange={(e) => setJoinDate(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
             />
+          </div>
+
+          <div className="relative">
+            <label className="block text-sm font-medium text-navy-900 mb-1.5">Branch</label>
+            <select
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+            >
+              <option value="">Select Branch</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+            <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
         </div>
       </section>
 
-      {/* ═══════════ Savings Setup ═══════════ */}
-      <section className="bg-white rounded-xl border border-gray-100 p-6">
-        <SectionHeading icon={PiggyBank} title="Savings Setup" />
+      {/* ─── Section 3: Savings Setup ─── */}
+      <section className={`bg-white rounded-xl border border-gray-100 p-6 space-y-5 transition-opacity ${!selectedStaff ? "opacity-40 pointer-events-none" : ""}`}>
+        <div className="flex items-center gap-2 mb-1">
+          <PiggyBank className="w-5 h-5 text-navy-900" />
+          <h2 className="text-lg font-bold text-navy-900">Savings Setup</h2>
+        </div>
+        <p className="text-sm text-gray-500 -mt-2">
+          The member must save for at least <strong>6 consecutive months</strong> before they can apply for a cooperative loan.
+        </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          {/* Initial Deposit */}
           <div>
-            <Label>Initial Deposit (₦)</Label>
+            <label className="block text-sm font-medium text-navy-900 mb-1.5">Initial Deposit (₦)</label>
             <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium">
-                ₦
-              </span>
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm text-gray-400">₦</span>
               <input
                 type="text"
                 value={initialDeposit}
@@ -420,120 +286,46 @@ export default function AddCooperativeMemberPage() {
             </div>
           </div>
 
-          {/* Contribution Type — radio buttons */}
           <div>
-            <Label>Contribution Type</Label>
-            <div className="flex gap-3 mt-0.5">
-              <button
-                type="button"
-                onClick={() => setContributionType("monthly")}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors ${
-                  contributionType === "monthly"
-                    ? "border-navy-900 bg-navy-900/5 text-navy-900"
-                    : "border-gray-200 text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                <span
-                  className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    contributionType === "monthly"
-                      ? "border-navy-900"
-                      : "border-gray-300"
+            <p className="block text-sm font-medium text-navy-900 mb-1.5">Contribution Type</p>
+            <div className="flex gap-3">
+              {["monthly", "weekly"].map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setContributionType(type)}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors ${
+                    contributionType === type
+                      ? "border-navy-900 bg-navy-900/5 text-navy-900"
+                      : "border-gray-200 text-gray-500 hover:border-gray-300"
                   }`}
                 >
-                  {contributionType === "monthly" && (
-                    <span className="w-2 h-2 rounded-full bg-navy-900" />
-                  )}
-                </span>
-                Monthly
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setContributionType("weekly")}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg text-sm font-medium transition-colors ${
-                  contributionType === "weekly"
-                    ? "border-navy-900 bg-navy-900/5 text-navy-900"
-                    : "border-gray-200 text-gray-500 hover:border-gray-300"
-                }`}
-              >
-                <span
-                  className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                    contributionType === "weekly"
-                      ? "border-navy-900"
-                      : "border-gray-300"
-                  }`}
-                >
-                  {contributionType === "weekly" && (
-                    <span className="w-2 h-2 rounded-full bg-navy-900" />
-                  )}
-                </span>
-                Weekly
-              </button>
+                  <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center ${contributionType === type ? "border-navy-900" : "border-gray-300"}`}>
+                    {contributionType === type && <span className="w-2 h-2 rounded-full bg-navy-900" />}
+                  </span>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </button>
+              ))}
             </div>
           </div>
         </div>
       </section>
 
-      {/* ═══════════ Next of Kin ═══════════ */}
-      <section className="bg-white rounded-xl border border-gray-100 p-6">
-        <SectionHeading icon={Heart} title="Next of Kin" />
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Full Name */}
-          <div>
-            <Label>Full Name</Label>
-            <input
-              type="text"
-              placeholder="Jane Doe"
-              value={kinName}
-              onChange={(e) => setKinName(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
-
-          {/* Relationship */}
-          <div>
-            <Label>Relationship</Label>
-            <input
-              type="text"
-              placeholder="Spouse, Sibling, etc."
-              value={kinRelationship}
-              onChange={(e) => setKinRelationship(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
-
-          {/* Phone Number */}
-          <div>
-            <Label>Phone Number</Label>
-            <input
-              type="tel"
-              placeholder="+1 (555) 000-0000"
-              value={kinPhone}
-              onChange={(e) => setKinPhone(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* ═══════════ Footer Actions ═══════════ */}
+      {/* ─── Footer ─── */}
       <div className="flex items-center justify-end gap-4 pt-2">
-        <Link
-          to="/members"
-          className="px-6 py-2.5 text-sm font-medium text-gray-600 hover:text-navy-900 transition-colors"
-        >
+        <Link to="/members" className="px-6 py-2.5 text-sm font-medium text-gray-600 hover:text-navy-900 transition-colors">
           Cancel
         </Link>
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !selectedStaff}
           className="flex items-center gap-2 px-6 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-60"
         >
           {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
-          {submitting ? "Creating…" : "Create Member"}
+          {submitting ? "Registering…" : "Register Cooperative Member"}
         </button>
       </div>
     </form>
   );
 }
+

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, PenLine, CheckCircle2, Calendar, Loader2, AlertCircle, RotateCcw } from "lucide-react";
-import { fetchMembers, fetchGroups, fetchBranches, fetchSavingsAccount, generateLoanId, createLoanApplication, uploadFile, checkIsGroupLeader } from "../lib/db";
+import { fetchMembers, fetchGroups, fetchSavingsAccount, generateLoanId, createLoanApplication, uploadFile, checkIsGroupLeader } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 import LoanRulesGate from "./LoanRulesGate";
 
@@ -10,16 +10,13 @@ export default function NewLoanApplicationPage() {
   const { profile } = useAuth();
   const [rulesAccepted, setRulesAccepted] = useState(false);
 
-  const [memberId, setMemberId] = useState("");
   const [memberSearch, setMemberSearch] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
   const [selectedMember, setSelectedMember] = useState<any>(null);
-  const [borrowerName, setBorrowerName] = useState("");
   const [fatherName, setFatherName] = useState("");
   const [group, setGroup] = useState("");
   const [groups, setGroups] = useState<any[]>([]);
-  const [branches, setBranches] = useState<any[]>([]);
   const [branchId, setBranchId] = useState("");
   const [creditOfficer, setCreditOfficer] = useState(profile?.full_name ?? "");
   const [savingsBalance, setSavingsBalance] = useState("0.00");
@@ -50,7 +47,6 @@ export default function NewLoanApplicationPage() {
 
   useEffect(() => {
     fetchGroups().then(r => setGroups(r.data)).catch(() => {});
-    fetchBranches().then(data => setBranches(data)).catch(() => {});
   }, []);
 
   const handleMemberSearch = useCallback(async (q: string) => {
@@ -66,18 +62,20 @@ export default function NewLoanApplicationPage() {
 
   const selectMember = async (m: any) => {
     setSelectedMember(m);
-    setMemberId(m.id);
-    setBorrowerName(`${m.first_name} ${m.last_name}`);
     setMemberSearch(`${m.first_name} ${m.last_name} (${m.member_id})`);
     setSearchResults([]);
     if (m.branch_id) setBranchId(m.branch_id);
+    setGroup(m.group_id || "");
     try {
       const acct = await fetchSavingsAccount(m.id);
       if (acct) setSavingsBalance(Number(acct.balance).toLocaleString());
-    } catch {}
+    } catch (error) {
+      console.error("Failed to fetch savings account:", error);
+    }
 
     // Check group leader status for external members
     if (m.member_type === "external") {
+      setLoanType("group");
       setCheckingLeader(true);
       try {
         const leader = await checkIsGroupLeader(m.id);
@@ -92,7 +90,7 @@ export default function NewLoanApplicationPage() {
   };
 
   const isExternalMember = selectedMember?.member_type === "external";
-  const externalBlocked = isExternalMember && isGroupLeader === false;
+  const externalBlocked = isExternalMember && (!selectedMember?.group_id || isGroupLeader === false);
 
   // Calculate service charge based on principal and interest rate
   const principal = parseFloat(principalAmount.replace(/,/g, "")) || 0;
@@ -105,6 +103,10 @@ export default function NewLoanApplicationPage() {
 
   const handleSubmit = async () => {
     if (!selectedMember) { setError("Please select a member"); return; }
+    if (isExternalMember && !selectedMember.group_id) {
+      setError("This external member is not assigned to any group.");
+      return;
+    }
     if (isExternalMember && isGroupLeader === false) {
       setError("Only group leaders of external loan groups are eligible to request loans.");
       return;
@@ -137,7 +139,7 @@ export default function NewLoanApplicationPage() {
         loan_id: loanId,
         member_id: selectedMember.id,
         branch_id: branchId || null,
-        loan_type: loanType,
+        loan_type: isExternalMember ? "group" : loanType,
         amount_requested: principal,
         interest_rate: rate,
         duration_months: months,
@@ -150,7 +152,7 @@ export default function NewLoanApplicationPage() {
         loan_cycle: parseInt(loanCycle) || 1,
         co_recommendation: coRecommendation,
         father_name: fatherName,
-        group_id: group || null,
+        group_id: isExternalMember ? selectedMember.group_id : group || null,
         signature_url: signatureUrl,
         guarantor1_name: guarantor1Name || "",
         guarantor1_status: guarantor1Phone || "",
@@ -242,22 +244,39 @@ export default function NewLoanApplicationPage() {
 
           {/* Row 2 */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            <div className="relative">
-              <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                Name of Group
-              </label>
-              <select
-                value={group}
-                onChange={(e) => setGroup(e.target.value)}
-                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="">Select Group</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.id}>{g.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
-            </div>
+            {isExternalMember ? (
+              <div>
+                <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                  Assigned Group
+                </label>
+                <input
+                  type="text"
+                  value={selectedMember?.group?.name || "No group assigned"}
+                  readOnly
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm bg-gray-50 text-gray-700"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  External members can only apply through their assigned group, and only the group leader can submit the request.
+                </p>
+              </div>
+            ) : (
+              <div className="relative">
+                <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                  Name of Group
+                </label>
+                <select
+                  value={group}
+                  onChange={(e) => setGroup(e.target.value)}
+                  className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+                >
+                  <option value="">Select Group</option>
+                  {groups.map(g => (
+                    <option key={g.id} value={g.id}>{g.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-navy-900 mb-1.5">
                 Name of CO (Credit Officer)
@@ -304,24 +323,38 @@ export default function NewLoanApplicationPage() {
 
           <div className="p-6 space-y-5">
             {/* Type of Loan */}
-            <div className="relative">
-              <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                Type of Loan
-              </label>
-              <select
-                value={loanType}
-                onChange={(e) => setLoanType(e.target.value)}
-                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="personal">Personal</option>
-                <option value="business">Business Expansion</option>
-                <option value="mortgage">Mortgage</option>
-                <option value="emergency">Emergency</option>
-                <option value="agriculture">Agriculture</option>
-                <option value="education">Education</option>
-              </select>
-              <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
-            </div>
+            {isExternalMember ? (
+              <div>
+                <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                  Type of Loan
+                </label>
+                <input
+                  type="text"
+                  value="Group"
+                  readOnly
+                  className="w-full px-4 py-2.5 border border-green-200 rounded-lg text-sm bg-green-50 text-green-700 font-medium"
+                />
+              </div>
+            ) : (
+              <div className="relative">
+                <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                  Type of Loan
+                </label>
+                <select
+                  value={loanType}
+                  onChange={(e) => setLoanType(e.target.value)}
+                  className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+                >
+                  <option value="personal">Personal</option>
+                  <option value="business">Business Expansion</option>
+                  <option value="mortgage">Mortgage</option>
+                  <option value="emergency">Emergency</option>
+                  <option value="agriculture">Agriculture</option>
+                  <option value="education">Education</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+            )}
 
             {/* Loan Cycle + End of Year */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

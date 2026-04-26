@@ -751,6 +751,28 @@ export async function reviewFundRequest(id: string, reviewedBy: string, status: 
 // ═══════════════════════════════════════════
 // STAFF & HR
 // ═══════════════════════════════════════════
+/** Search active staff by name, phone, or staff_id for cooperative member lookup */
+export async function searchStaffForCooperative(query: string) {
+  const q = query.trim();
+  if (!q) return [];
+  const { data, error } = await supabase
+    .from("staff")
+    .select("id, staff_id, first_name, last_name, phone, email, gender, date_of_birth, address, branch_id, job_role, department, date_joined")
+    .eq("employment_status", "active")
+    .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,staff_id.ilike.%${q}%,phone.ilike.%${q}%`)
+    .limit(8);
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Count distinct calendar months a member has made savings deposits.
+ *  Returns 0 if the RPC is not yet deployed (falls back gracefully). */
+export async function fetchSavingsMonths(memberId: string): Promise<number> {
+  const { data, error } = await supabase.rpc("count_savings_months", { p_member_id: memberId });
+  if (error) return 0;
+  return (data as number) ?? 0;
+}
+
 export async function fetchStaff(filters?: {
   branch_id?: string; status?: string; search?: string;
 }) {
@@ -889,26 +911,37 @@ export async function fetchMessages(userId: string, folder?: string) {
 export async function sendMessage(msg: {
   sender_id: string; recipient_id: string; subject: string; body: string;
 }) {
-  // Insert for recipient (inbox)
-  const { error: e1 } = await supabase.from("messages").insert({
-    ...msg,
-    folder: "inbox",
-  });
-  if (e1) throw e1;
-
-  // Insert for sender (sent)
-  const { error: e2 } = await supabase.from("messages").insert({
-    ...msg,
-    folder: "sent",
-    is_read: true,
-  });
-  if (e2) throw e2;
+  const { error } = await supabase.from("messages").insert([
+    {
+      ...msg,
+      folder: "inbox",
+      is_read: false,
+    },
+    {
+      ...msg,
+      folder: "sent",
+      is_read: true,
+    },
+  ]);
+  if (error) throw error;
 
   await logAudit("send", "message", "", { recipient_id: msg.recipient_id, subject: msg.subject });
 }
 
 export async function markMessageRead(id: string) {
   await supabase.from("messages").update({ is_read: true }).eq("id", id);
+}
+
+export async function fetchUnreadMessagesCount(userId: string) {
+  const { count, error } = await supabase
+    .from("messages")
+    .select("id", { count: "exact", head: true })
+    .eq("recipient_id", userId)
+    .eq("folder", "inbox")
+    .eq("is_read", false);
+
+  if (error) return 0;
+  return count ?? 0;
 }
 
 // ═══════════════════════════════════════════

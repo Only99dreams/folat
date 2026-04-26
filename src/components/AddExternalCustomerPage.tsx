@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
   User,
@@ -11,7 +11,13 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
-import { createMember, generateMemberId, uploadFile, createDocument } from "../lib/db";
+import {
+  createMember,
+  generateMemberId,
+  uploadFile,
+  createDocument,
+  fetchGroups,
+} from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 
 export default function AddExternalCustomerPage() {
@@ -38,6 +44,8 @@ export default function AddExternalCustomerPage() {
   const [employmentStatus, setEmploymentStatus] = useState("Employed");
   const [employer, setEmployer] = useState("");
   const [monthlyIncome, setMonthlyIncome] = useState("");
+  const [groupId, setGroupId] = useState("");
+  const [groups, setGroups] = useState<any[]>([]);
 
   /* ── Eligibility & Credit ── */
   const [creditScore, setCreditScore] = useState(500);
@@ -51,11 +59,26 @@ export default function AddExternalCustomerPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    fetchGroups()
+      .then((res) => setGroups((res.data || []).filter((group) => group.leader_id)))
+      .catch(() => setGroups([]));
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     if (!firstName || !lastName || !phone) {
       setError("Please fill in required fields: First Name, Last Name, Phone.");
+      return;
+    }
+    if (!groupId) {
+      setError("Please select a group for this external member.");
+      return;
+    }
+    const selectedGroup = groups.find((group) => group.id === groupId);
+    if (!selectedGroup?.leader_id) {
+      setError("External members can only be assigned to a group that already has a group leader.");
       return;
     }
     setSubmitting(true);
@@ -72,6 +95,7 @@ export default function AddExternalCustomerPage() {
         address: address || "",
         employer: employer || "",
         member_type: "external",
+        group_id: groupId,
         national_id: nationalId || "",
         monthly_income: monthlyIncome ? parseFloat(monthlyIncome) : 0,
         employment_status: employmentStatus || "",
@@ -361,6 +385,41 @@ export default function AddExternalCustomerPage() {
               onChange={(e) => setMonthlyIncome(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
             />
+          </div>
+
+          {/* Group (Required for external members) */}
+          <div>
+            <Label>Group (Required)</Label>
+            <div className="relative">
+              <select
+                value={groupId}
+                onChange={(e) => setGroupId(e.target.value)}
+                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+              >
+                <option value="">Select Group With Leader</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+              <svg
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Only groups that already have a designated leader can accept external members.
+            </p>
           </div>
         </div>
       </section>

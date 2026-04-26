@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS public.members (
   id_document_url text DEFAULT '',
   branch_id uuid REFERENCES public.branches(id),
   group_id uuid,  -- FK added after groups table
+  CONSTRAINT members_external_group_required
+    CHECK (member_type <> 'external' OR group_id IS NOT NULL),
   join_date date NOT NULL DEFAULT CURRENT_DATE,
   status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive','suspended')),
   -- Cooperative-specific

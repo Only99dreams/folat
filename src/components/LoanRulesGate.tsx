@@ -22,7 +22,7 @@ const defaultRules = [
   },
   {
     title: "Guarantor Requirements",
-    content: "All loans require a minimum of 2 guarantors who are active cooperative members. Guarantors' combined savings must be at least 50% of the loan amount.",
+    content: "Cooperative loans require at least one guarantor who is an active employee in the organization. Guarantor financial eligibility is evaluated by backend policy and shown as Eligible or Not Eligible.",
   },
   {
     title: "Repayment Terms",

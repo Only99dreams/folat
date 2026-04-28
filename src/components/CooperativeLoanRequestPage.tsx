@@ -10,6 +10,10 @@ import {
   RotateCcw,
   Info,
   PiggyBank,
+  Mail,
+  MessageSquare,
+  Phone,
+  Users,
 } from "lucide-react";
 import {
   fetchMembers,
@@ -19,9 +23,39 @@ import {
   generateLoanId,
   createLoanApplication,
   uploadFile,
+  fetchStaffDirectory,
+  fetchBranchSecretaryContact,
+  sendMessage,
+  createNotification,
 } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 import LoanRulesGate from "./LoanRulesGate";
+
+type MemberSearchResult = {
+  id: string;
+  member_id: string;
+  member_type: string;
+  first_name: string;
+  last_name: string;
+  branch_id?: string | null;
+};
+
+type BranchOption = {
+  id: string;
+  name: string;
+};
+
+type StaffDirectoryItem = {
+  id: string;
+  profile_id?: string | null;
+  staff_id: string;
+  first_name: string;
+  last_name: string;
+  phone?: string;
+  email?: string;
+  job_role?: string;
+  guarantor_eligible?: boolean;
+};
 
 export default function CooperativeLoanRequestPage() {
   const navigate = useNavigate();
@@ -30,11 +64,11 @@ export default function CooperativeLoanRequestPage() {
 
   // Borrower info
   const [memberSearch, setMemberSearch] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<MemberSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
-  const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [selectedMember, setSelectedMember] = useState<MemberSearchResult | null>(null);
   const [fatherName, setFatherName] = useState("");
-  const [branches, setBranches] = useState<any[]>([]);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
   const [branchId, setBranchId] = useState("");
   const [savingsBalance, setSavingsBalance] = useState("0.00");
   const [savingsRaw, setSavingsRaw] = useState(0);
@@ -57,6 +91,13 @@ export default function CooperativeLoanRequestPage() {
   const [guarantor1Phone, setGuarantor1Phone] = useState("");
   const [guarantor2Name, setGuarantor2Name] = useState("");
   const [guarantor2Phone, setGuarantor2Phone] = useState("");
+  const [guarantor1Staff, setGuarantor1Staff] = useState<StaffDirectoryItem | null>(null);
+
+  const [staffDirectory, setStaffDirectory] = useState<StaffDirectoryItem[]>([]);
+  const [directorySearch, setDirectorySearch] = useState("");
+  const [loadingStaffDirectory, setLoadingStaffDirectory] = useState(false);
+  const [secretaryContact, setSecretaryContact] = useState<StaffDirectoryItem | null>(null);
+  const [contactingSecretary, setContactingSecretary] = useState(false);
 
   // Sign-off
   const [coRecommendation, setCoRecommendation] = useState("");
@@ -70,8 +111,47 @@ export default function CooperativeLoanRequestPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetchBranches().then((data) => setBranches(data)).catch(() => {});
+    fetchBranches().then((data) => setBranches((data ?? []) as BranchOption[])).catch(() => {});
   }, []);
+
+  // Auto-select self for staff members — they can only apply for themselves
+  const isStaffMember = profile?.role === "staff_member";
+
+  useEffect(() => {
+    const loadDirectory = async () => {
+      setLoadingStaffDirectory(true);
+      try {
+        const data = await fetchStaffDirectory({
+          branch_id: branchId || undefined,
+          search: directorySearch || undefined,
+        });
+        setStaffDirectory((data ?? []) as StaffDirectoryItem[]);
+      } catch {
+        setStaffDirectory([]);
+      }
+      setLoadingStaffDirectory(false);
+    };
+
+    loadDirectory();
+  }, [branchId, directorySearch]);
+
+  useEffect(() => {
+    const loadSecretary = async () => {
+      if (!branchId) {
+        setSecretaryContact(null);
+        return;
+      }
+
+      try {
+        const data = await fetchBranchSecretaryContact(branchId);
+        setSecretaryContact((data ?? null) as StaffDirectoryItem | null);
+      } catch {
+        setSecretaryContact(null);
+      }
+    };
+
+    loadSecretary();
+  }, [branchId]);
 
   const handleMemberSearch = useCallback(async (q: string) => {
     setMemberSearch(q);
@@ -86,14 +166,14 @@ export default function CooperativeLoanRequestPage() {
         pageSize: 5,
         member_type: "cooperative",
       });
-      setSearchResults(data);
+      setSearchResults((data ?? []) as MemberSearchResult[]);
     } catch {
       setSearchResults([]);
     }
     setSearching(false);
   }, []);
 
-  const selectMember = async (m: any) => {
+  const selectMember = useCallback(async (m: MemberSearchResult) => {
     setSelectedMember(m);
     setMemberSearch(`${m.first_name} ${m.last_name} (${m.member_id})`);
     setSearchResults([]);
@@ -109,8 +189,34 @@ export default function CooperativeLoanRequestPage() {
         setSavingsRaw(bal);
       }
       setSavingsMonths(months);
-    } catch {}
-  };
+    } catch {
+      setSavingsBalance("0.00");
+      setSavingsRaw(0);
+      setSavingsMonths(0);
+    }
+  }, []);
+
+  // Auto-select self for staff members — they can only apply for themselves
+  useEffect(() => {
+    if (!isStaffMember || !profile?.email) return;
+    (async () => {
+      try {
+        const { data } = await fetchMembers({
+          search: profile.email,
+          pageSize: 1,
+          member_type: "cooperative",
+        });
+        const match = (data ?? [])[0] as MemberSearchResult | undefined;
+        if (match) {
+          await selectMember(match);
+        } else {
+          setError("Your account is not registered as a cooperative member. Contact your admin to link your member record.");
+        }
+      } catch {
+        // silently fail
+      }
+    })();
+  }, [isStaffMember, profile?.email, selectMember]);
 
   // Calculations — 10% flat interest, 6–12 month duration
   const principal = parseFloat(principalAmount.replace(/,/g, "")) || 0;
@@ -122,6 +228,28 @@ export default function CooperativeLoanRequestPage() {
 
   // Eligibility: must have ≥ 6 months of savings
   const isEligible = selectedMember && savingsRaw > 0 && savingsMonths >= 6;
+
+  const selectGuarantor = (staff: StaffDirectoryItem) => {
+    setGuarantor1Staff(staff);
+    setGuarantor1Name(`${staff.first_name} ${staff.last_name}`.trim());
+    setGuarantor1Phone(staff.phone || "");
+  };
+
+  const handleContactSecretaryInApp = async () => {
+    if (!profile?.id || !secretaryContact?.profile_id) return;
+    setContactingSecretary(true);
+    try {
+      await sendMessage({
+        sender_id: profile.id,
+        recipient_id: secretaryContact.profile_id,
+        subject: "Branch support inquiry",
+        body: `Hello, I need support regarding a cooperative loan request${selectedMember ? ` for ${selectedMember.first_name} ${selectedMember.last_name}` : ""}.`,
+      });
+    } catch {
+      setError("Unable to send in-app message to branch secretary right now.");
+    }
+    setContactingSecretary(false);
+  };
 
   const handleSubmit = async () => {
     if (!selectedMember) {
@@ -146,6 +274,14 @@ export default function CooperativeLoanRequestPage() {
     }
     if (principal > maxLoanAmount) {
       setError(`Maximum loan amount is ₦${maxLoanAmount.toLocaleString()} (2× your savings balance of ₦${savingsRaw.toLocaleString()}).`);
+      return;
+    }
+    if (!guarantor1Staff) {
+      setError("Please select one staff guarantor from the company directory.");
+      return;
+    }
+    if (!guarantor1Staff.guarantor_eligible) {
+      setError("Selected guarantor is marked Not Eligible. Please choose an Eligible staff guarantor.");
       return;
     }
     if (!consentChecked) {
@@ -198,13 +334,35 @@ export default function CooperativeLoanRequestPage() {
         group_id: null,
         signature_url: signatureUrl,
         guarantor1_name: guarantor1Name,
-        guarantor1_status: guarantor1Phone,
+        guarantor1_phone: guarantor1Phone,
+        guarantor1_email: guarantor1Staff.email || "",
+        guarantor1_staff_id: guarantor1Staff.id,
+        guarantor1_status: "pending",
+        guarantor1_eligibility: guarantor1Staff.guarantor_eligible ? "eligible" : "not_eligible",
+        guarantor1_approval_status: "pending",
         guarantor2_name: guarantor2Name,
-        guarantor2_status: guarantor2Phone,
+        guarantor2_phone: guarantor2Phone,
+        guarantor2_status: guarantor2Name ? "pending" : "",
+        guarantor2_approval_status: guarantor2Name ? "pending" : "",
       });
+
+      if (guarantor1Staff.profile_id) {
+        try {
+          await createNotification({
+            user_id: guarantor1Staff.profile_id,
+            title: "Guarantor Approval Needed",
+            body: `You were selected as guarantor for loan ${loanId}. Please review and approve or reject the request.`,
+            type: "warning",
+            link: "/loans/guarantor-requests",
+          });
+        } catch {
+          // Notification is non-blocking.
+        }
+      }
+
       navigate("/loans");
-    } catch (e: any) {
-      setError(e.message || "Failed to submit loan request");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to submit loan request");
     }
     setSubmitting(false);
   };
@@ -267,13 +425,15 @@ export default function CooperativeLoanRequestPage() {
             <div className="relative">
               <label className="block text-sm font-medium text-navy-900 mb-1.5">
                 Search Cooperative Member
+                {isStaffMember && <span className="ml-2 text-xs text-gray-400 font-normal">(auto-filled as yourself)</span>}
               </label>
               <input
                 type="text"
                 placeholder="Type member name or ID..."
                 value={memberSearch}
-                onChange={(e) => handleMemberSearch(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+                onChange={(e) => { if (!isStaffMember) handleMemberSearch(e.target.value); }}
+                readOnly={isStaffMember}
+                className={`w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 ${isStaffMember ? "bg-gray-50 cursor-not-allowed" : ""}`}
               />
               {searching && (
                 <Loader2 className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 animate-spin" />
@@ -359,6 +519,68 @@ export default function CooperativeLoanRequestPage() {
                 <p className="text-xs text-green-600 mt-1">
                   ✓ {savingsMonths} months saved — eligible. Max loan: ₦{maxLoanAmount.toLocaleString()}
                 </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold tracking-wide uppercase text-blue-600">
+                  Branch Secretary Contact
+                </p>
+                {secretaryContact ? (
+                  <>
+                    <p className="text-sm font-semibold text-blue-900 mt-1">
+                      {secretaryContact.first_name} {secretaryContact.last_name}
+                    </p>
+                    <p className="text-xs text-blue-700 mt-0.5">
+                      {secretaryContact.job_role || "Secretary"}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-blue-700 mt-1">
+                    No secretary record found for this branch yet.
+                  </p>
+                )}
+              </div>
+
+              {secretaryContact && (
+                <div className="flex items-center gap-2">
+                  {secretaryContact.phone && (
+                    <a
+                      href={`tel:${secretaryContact.phone}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-blue-200 bg-white text-blue-700 hover:bg-blue-100"
+                    >
+                      <Phone className="w-3.5 h-3.5" />
+                      Call
+                    </a>
+                  )}
+
+                  {secretaryContact.email && (
+                    <a
+                      href={`mailto:${secretaryContact.email}`}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-blue-200 bg-white text-blue-700 hover:bg-blue-100"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      Email
+                    </a>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleContactSecretaryInApp}
+                    disabled={!secretaryContact.profile_id || contactingSecretary}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border border-blue-200 bg-white text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    {contactingSecretary ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <MessageSquare className="w-3.5 h-3.5" />
+                    )}
+                    In-App Chat
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -552,71 +774,131 @@ export default function CooperativeLoanRequestPage() {
           </span>
           <h2 className="text-base font-bold text-navy-900">
             Guarantor Information{" "}
-            <span className="text-xs font-normal text-gray-400">
-              (Optional for cooperative members)
+            <span className="text-xs font-normal text-red-500">
+              (At least 1 eligible staff guarantor required)
             </span>
           </h2>
         </div>
 
-        <div className="p-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-navy-900">
-                Guarantor 1
-              </h3>
-              <div>
-                <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter guarantor name"
-                  value={guarantor1Name}
-                  onChange={(e) => setGuarantor1Name(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                  Phone Number
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter phone number"
-                  value={guarantor1Phone}
-                  onChange={(e) => setGuarantor1Phone(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-                />
+        <div className="p-6 space-y-5">
+          {guarantor1Staff ? (
+            <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide font-semibold text-green-700">Selected Guarantor</p>
+              <div className="flex flex-wrap items-center justify-between gap-3 mt-1.5">
+                <div>
+                  <p className="text-sm font-semibold text-green-900">{guarantor1Name}</p>
+                  <p className="text-xs text-green-700">
+                    {guarantor1Staff.staff_id} · {guarantor1Staff.email || "No email"} · {guarantor1Phone || "No phone"}
+                  </p>
+                </div>
+                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${guarantor1Staff.guarantor_eligible ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
+                  {guarantor1Staff.guarantor_eligible ? "Eligible" : "Not Eligible"}
+                </span>
               </div>
             </div>
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-navy-900">
-                Guarantor 2
-              </h3>
-              <div>
-                <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter guarantor name"
-                  value={guarantor2Name}
-                  onChange={(e) => setGuarantor2Name(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-                />
+          ) : (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Select one eligible staff guarantor from the directory below.
+            </div>
+          )}
+
+          <div className="rounded-xl border border-gray-200">
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-navy-900" />
+                <p className="text-sm font-semibold text-navy-900">Staff Directory</p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                  Phone Number
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter phone number"
-                  value={guarantor2Phone}
-                  onChange={(e) => setGuarantor2Phone(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-                />
+              <input
+                type="text"
+                value={directorySearch}
+                onChange={(e) => setDirectorySearch(e.target.value)}
+                placeholder="Search by name, ID, email, phone"
+                className="w-full max-w-xs px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-navy-900/20"
+              />
+            </div>
+
+            {loadingStaffDirectory ? (
+              <div className="py-8 flex items-center justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
               </div>
+            ) : staffDirectory.length === 0 ? (
+              <div className="py-8 text-center text-sm text-gray-500">No staff records found for this filter.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-[10px] uppercase tracking-[0.1em] text-gray-400">
+                      <th className="px-4 py-3">Staff</th>
+                      <th className="px-4 py-3">Contact</th>
+                      <th className="px-4 py-3">Role</th>
+                      <th className="px-4 py-3">Eligibility</th>
+                      <th className="px-4 py-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffDirectory.map((staff) => {
+                      const fullName = `${staff.first_name} ${staff.last_name}`.trim();
+                      const isSelected = guarantor1Staff?.id === staff.id;
+                      return (
+                        <tr key={staff.id} className="border-b border-gray-50 last:border-b-0">
+                          <td className="px-4 py-3">
+                            <p className="text-sm font-semibold text-navy-900">{fullName}</p>
+                            <p className="text-xs text-gray-400">{staff.staff_id}</p>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-600">
+                            <p>{staff.email || "No email"}</p>
+                            <p>{staff.phone || "No phone"}</p>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-600">
+                            {staff.job_role || "-"}
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold border ${staff.guarantor_eligible ? "bg-green-50 text-green-700 border-green-200" : "bg-red-50 text-red-700 border-red-200"}`}>
+                              {staff.guarantor_eligible ? "Eligible" : "Not Eligible"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => selectGuarantor(staff)}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border ${isSelected ? "bg-navy-900 text-white border-navy-900" : "bg-white text-navy-900 border-gray-200 hover:bg-gray-50"}`}
+                            >
+                              {isSelected ? "Selected" : "Select"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <div>
+              <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                Secondary Guarantor (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="Enter optional second guarantor name"
+                value={guarantor2Name}
+                onChange={(e) => setGuarantor2Name(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                Secondary Guarantor Phone
+              </label>
+              <input
+                type="text"
+                placeholder="Enter optional second guarantor phone"
+                value={guarantor2Phone}
+                onChange={(e) => setGuarantor2Phone(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+              />
             </div>
           </div>
         </div>

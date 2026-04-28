@@ -72,6 +72,7 @@ const operations: NavItem[] = [
       { label: "Repayments", path: "/loans/repayments", permission: "loans.repayments" },
       { label: "Record Repayment", path: "/loans/record-repayment", permission: "loans.record_repayment" },
       { label: "Weekly Tracking", path: "/loans/weekly-tracking", permission: "loans.weekly_tracking" },
+      { label: "Guarantor Requests", path: "/loans/guarantor-requests", permission: "loans.view" },
     ],
   },
   {
@@ -284,7 +285,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   // Close sidebar on route change (mobile)
   useEffect(() => {
     onClose();
-  }, [location.pathname]);
+  }, [location.pathname, onClose]);
 
   const handleLogout = () => {
     logout();

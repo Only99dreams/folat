@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   UserCheck,
   UserX,
@@ -9,7 +9,6 @@ import {
   X,
   ChevronDown,
   Search,
-  Bell,
   Users,
   AlertCircle,
 } from "lucide-react";
@@ -19,15 +18,27 @@ const roleOptions: { value: string; label: string; description: string; color: s
   { value: "branch_manager", label: "Branch Manager", description: "Manage branch operations, members, and staff", color: "bg-blue-100 text-blue-700" },
   { value: "finance_officer", label: "Finance Officer", description: "Handle financial transactions and reporting", color: "bg-green-100 text-green-700" },
   { value: "loan_officer", label: "Loan Officer", description: "Process and manage loan applications", color: "bg-amber-100 text-amber-700" },
+  { value: "staff_member", label: "Staff Member", description: "Access cooperative dashboard, loan menu, and staff communication tools", color: "bg-indigo-100 text-indigo-700" },
   { value: "front_desk", label: "Front Desk", description: "Basic member registration and enquiries", color: "bg-purple-100 text-purple-700" },
   { value: "auditor", label: "Auditor", description: "Read-only access for audit and compliance", color: "bg-gray-100 text-gray-700" },
   { value: "hr_manager", label: "HR Manager", description: "Manage staff, leave, and attendance", color: "bg-teal-100 text-teal-700" },
 ];
 
 export default function UserApprovalPage() {
-  const [pendingUsers, setPendingUsers] = useState<any[]>([]);
-  const [allProfiles, setAllProfiles] = useState<any[]>([]);
-  const [branches, setBranches] = useState<any[]>([]);
+  type PendingUser = {
+    id: string;
+    full_name: string;
+    email: string;
+    avatar_initials: string;
+    created_at: string;
+  };
+
+  type ProfileRow = PendingUser & { role: string };
+  type BranchRow = { id: string; name: string };
+
+  const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
+  const [allProfiles, setAllProfiles] = useState<ProfileRow[]>([]);
+  const [branches, setBranches] = useState<BranchRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
@@ -39,11 +50,7 @@ export default function UserApprovalPage() {
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [pending, branchList, profiles] = await Promise.all([
@@ -51,14 +58,22 @@ export default function UserApprovalPage() {
         fetchBranches(),
         fetchAllProfiles(),
       ]);
-      setPendingUsers(pending);
-      setBranches(branchList);
-      setAllProfiles(profiles);
+      setPendingUsers((pending ?? []) as PendingUser[]);
+      setBranches((branchList ?? []) as BranchRow[]);
+      setAllProfiles((profiles ?? []) as ProfileRow[]);
     } catch (err) {
       console.error("Failed to load data:", err);
     }
     setLoading(false);
-  }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void loadData();
+    }, 0);
+
+    return () => clearTimeout(t);
+  }, [loadData]);
 
   async function handleApprove(profileId: string) {
     const role = selectedRoles[profileId];
@@ -84,8 +99,8 @@ export default function UserApprovalPage() {
 
       setSuccessMsg("User approved successfully.");
       await loadData();
-    } catch (err: any) {
-      setError(err.message || "Failed to approve user.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to approve user.");
     }
     setProcessing((p) => ({ ...p, [profileId]: null }));
     setTimeout(() => setSuccessMsg(""), 3000);
@@ -99,8 +114,8 @@ export default function UserApprovalPage() {
       setConfirmReject(null);
       setSuccessMsg("User rejected and removed.");
       await loadData();
-    } catch (err: any) {
-      setError(err.message || "Failed to reject user.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to reject user.");
     }
     setProcessing((p) => ({ ...p, [profileId]: null }));
     setTimeout(() => setSuccessMsg(""), 3000);

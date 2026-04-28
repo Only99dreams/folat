@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "./auth/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./components/LoginPage";
@@ -34,6 +35,7 @@ import OverdueLoansPage from "./components/OverdueLoansPage";
 import LoanRepaymentSchedulePage from "./components/LoanRepaymentSchedulePage";
 import AllLoanRepaymentsPage from "./components/AllLoanRepaymentsPage";
 import RecordLoanRepaymentPage from "./components/RecordLoanRepaymentPage";
+import GuarantorRequestsPage from "./components/GuarantorRequestsPage";
 import FinanceDashboardPage from "./components/FinanceDashboardPage";
 import AddIncomePage from "./components/AddIncomePage";
 import AddExpensePage from "./components/AddExpensePage";
@@ -70,6 +72,18 @@ function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 3500,
+            style: {
+              border: "1px solid #e5e7eb",
+              borderRadius: "12px",
+              background: "#ffffff",
+              color: "#0a1f44",
+            },
+          }}
+        />
         <Routes>
           {/* ── Public routes ── */}
           <Route path="/" element={<LoginPage />} />
@@ -119,6 +133,7 @@ function App() {
               <Route path="/loans/repayments" element={<ProtectedRoute requiredPermissions={["loans.repayments"]}><AllLoanRepaymentsPage /></ProtectedRoute>} />
               <Route path="/loans/record-repayment" element={<ProtectedRoute requiredPermissions={["loans.record_repayment"]}><RecordLoanRepaymentPage /></ProtectedRoute>} />
               <Route path="/loans/weekly-tracking" element={<ProtectedRoute requiredPermissions={["loans.weekly_tracking"]}><WeeklyTrackingPage /></ProtectedRoute>} />
+              <Route path="/loans/guarantor-requests" element={<ProtectedRoute requiredPermissions={["loans.view"]}><GuarantorRequestsPage /></ProtectedRoute>} />
 
               {/* Finance */}
               <Route path="/finance" element={<ProtectedRoute requiredPermissions={["finance.view"]}><FinanceDashboardPage /></ProtectedRoute>} />

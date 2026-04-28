@@ -401,7 +401,7 @@ export async function fetchLoanApplications(filters?: {
 }) {
   let query = supabase
     .from("loan_applications")
-    .select("*, member:members(first_name, last_name, member_id), branch:branches(name), officer:profiles!loan_applications_credit_officer_id_fkey(full_name)", { count: "exact" })
+    .select("id, loan_id, amount_requested, loan_type, status, created_at, guarantor1_name, guarantor1_approval_status, guarantor2_name, guarantor2_approval_status, member:members(first_name, last_name, member_id), branch:branches(name), officer:profiles!loan_applications_credit_officer_id_fkey(full_name)", { count: "exact" })
     .order("created_at", { ascending: false });
 
   if (filters?.status) query = query.eq("status", filters.status);
@@ -466,6 +466,138 @@ export async function updateLoanApplication(id: string, updates: Record<string, 
   if (error) throw error;
   await logAudit("update", "loan_application", id, updates);
   return data;
+}
+
+export async function fetchGuarantorRequestsForProfile(profileId: string) {
+  type GuarantorLoanRow = {
+    id: string;
+    loan_id: string;
+    amount_requested: number;
+    duration_months: number;
+    status: string;
+    created_at: string;
+    guarantor1_name: string;
+    guarantor1_staff_id: string | null;
+    guarantor1_approval_status: string;
+    guarantor1_approval_note: string;
+    guarantor1_eligibility: string;
+    guarantor2_name: string;
+    guarantor2_staff_id: string | null;
+    guarantor2_approval_status: string;
+    guarantor2_approval_note: string;
+    guarantor2_eligibility: string;
+    member?: { first_name: string; last_name: string; member_id: string } | null;
+    branch?: { name: string } | null;
+    officer?: { full_name: string } | null;
+  };
+
+  type GuarantorRequest = GuarantorLoanRow & {
+    guarantor_slot: 1 | 2;
+    guarantor_name: string;
+    guarantor_status: string;
+    guarantor_note: string;
+    guarantor_eligibility: string;
+  };
+
+  const { data: staff, error: staffError } = await supabase
+    .from("staff")
+    .select("id")
+    .eq("profile_id", profileId)
+    .single();
+
+  if (staffError || !staff) return [];
+
+  const { data, error } = await supabase
+    .from("loan_applications")
+    .select(
+      "id, loan_id, amount_requested, duration_months, status, created_at, " +
+      "guarantor1_name, guarantor1_staff_id, guarantor1_approval_status, guarantor1_approval_note, guarantor1_eligibility, " +
+      "guarantor2_name, guarantor2_staff_id, guarantor2_approval_status, guarantor2_approval_note, guarantor2_eligibility, " +
+      "member:members(first_name, last_name, member_id), branch:branches(name), officer:profiles!loan_applications_credit_officer_id_fkey(full_name)"
+    )
+    .or(`guarantor1_staff_id.eq.${staff.id},guarantor2_staff_id.eq.${staff.id}`)
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as GuarantorLoanRow[];
+  const requests: GuarantorRequest[] = [];
+
+  for (const loan of rows) {
+    if (loan.guarantor1_staff_id === staff.id) {
+      requests.push({
+        ...loan,
+        guarantor_slot: 1,
+        guarantor_name: loan.guarantor1_name,
+        guarantor_status: loan.guarantor1_approval_status,
+        guarantor_note: loan.guarantor1_approval_note,
+        guarantor_eligibility: loan.guarantor1_eligibility,
+      });
+    }
+
+    if (loan.guarantor2_staff_id === staff.id) {
+      requests.push({
+        ...loan,
+        guarantor_slot: 2,
+        guarantor_name: loan.guarantor2_name,
+        guarantor_status: loan.guarantor2_approval_status,
+        guarantor_note: loan.guarantor2_approval_note,
+        guarantor_eligibility: loan.guarantor2_eligibility,
+      });
+    }
+  }
+
+  return requests;
+}
+
+export async function reviewGuarantorRequest(params: {
+  loanId: string;
+  slot: 1 | 2;
+  decision: "approved" | "rejected";
+  note?: string;
+}) {
+  const prefix = params.slot === 1 ? "guarantor1" : "guarantor2";
+  const updates: Record<string, unknown> = {
+    [`${prefix}_approval_status`]: params.decision,
+    [`${prefix}_approval_note`]: params.note ?? "",
+    [`${prefix}_approved_at`]: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from("loan_applications")
+    .update(updates)
+    .eq("id", params.loanId)
+    .select(
+      "id, status, guarantor1_name, guarantor1_approval_status, guarantor2_name, guarantor2_approval_status"
+    )
+    .single();
+
+  if (error) throw error;
+
+  if (params.decision === "rejected") {
+    await supabase
+      .from("loan_applications")
+      .update({ status: "rejected", updated_at: new Date().toISOString() })
+      .eq("id", params.loanId);
+  } else {
+    const g1Required = Boolean(data.guarantor1_name?.trim());
+    const g2Required = Boolean(data.guarantor2_name?.trim());
+    const g1Ok = !g1Required || data.guarantor1_approval_status === "approved";
+    const g2Ok = !g2Required || data.guarantor2_approval_status === "approved";
+
+    if (g1Ok && g2Ok && data.status === "pending") {
+      await supabase
+        .from("loan_applications")
+        .update({ status: "under_review", updated_at: new Date().toISOString() })
+        .eq("id", params.loanId);
+    }
+  }
+
+  await logAudit("guarantor_review", "loan_application", params.loanId, {
+    slot: params.slot,
+    decision: params.decision,
+  });
 }
 
 export async function approveLoan(id: string, approvedBy: string, notes: string, amountApproved?: number) {
@@ -778,18 +910,55 @@ export async function fetchStaff(filters?: {
 }) {
   let query = supabase
     .from("staff")
-    .select("*, branch:branches(name)")
+    .select("*, profile_id, branch:branches(name)")
     .order("created_at", { ascending: false });
 
   if (filters?.branch_id) query = query.eq("branch_id", filters.branch_id);
   if (filters?.status) query = query.eq("employment_status", filters.status);
   if (filters?.search) {
-    query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%`);
+    query = query.or(`first_name.ilike.%${filters.search}%,last_name.ilike.%${filters.search}%,staff_id.ilike.%${filters.search}%,email.ilike.%${filters.search}%,phone.ilike.%${filters.search}%`);
   }
 
   const { data, error } = await query;
   if (error) throw error;
   return data ?? [];
+}
+
+export async function fetchStaffDirectory(filters?: { branch_id?: string; search?: string }) {
+  let query = supabase
+    .from("staff")
+    .select("id, profile_id, staff_id, first_name, last_name, phone, email, job_role, department, guarantor_eligible, branch_id, branch:branches(name)")
+    .eq("employment_status", "active")
+    .order("first_name", { ascending: true });
+
+  if (filters?.branch_id) query = query.eq("branch_id", filters.branch_id);
+
+  if (filters?.search && filters.search.trim()) {
+    const q = filters.search.trim();
+    query = query.or(
+      `first_name.ilike.%${q}%,last_name.ilike.%${q}%,staff_id.ilike.%${q}%,email.ilike.%${q}%,phone.ilike.%${q}%`
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function fetchBranchSecretaryContact(branchId: string) {
+  if (!branchId) return null;
+
+  const { data, error } = await supabase
+    .from("staff")
+    .select("id, profile_id, staff_id, first_name, last_name, phone, email, job_role, branch_id, branch:branches(name)")
+    .eq("employment_status", "active")
+    .eq("branch_id", branchId)
+    .ilike("job_role", "%secretary%")
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data;
 }
 
 export async function fetchStaffMember(id: string) {
@@ -808,6 +977,37 @@ export async function createStaff(staff: Record<string, unknown>) {
   return data;
 }
 
+export async function provisionStaffAuthUser(payload: {
+  email: string;
+  password: string;
+  full_name: string;
+  phone?: string;
+  role?: string;
+  branch?: string;
+}) {
+  const { data, error } = await supabase.functions.invoke("create-staff-user", {
+    body: payload,
+  });
+
+  if (error) {
+    const isEdgeUnavailable = /edge function|failed to send a request/i.test(error.message || "");
+
+    if (isEdgeUnavailable) {
+      throw new Error(
+        "Staff login provisioning requires the deployed create-staff-user Edge Function. Without it, Supabase will require email confirmation before first login. Deploy the function, then create the staff account again."
+      );
+    }
+
+    throw new Error(error.message || "Failed to provision staff login account.");
+  }
+
+  const typed = data as { user_id?: string; email?: string; error?: string };
+  if (typed?.error) throw new Error(typed.error);
+  if (!typed?.user_id) throw new Error("Staff login account was not created.");
+
+  return typed;
+}
+
 export async function updateStaff(id: string, updates: Record<string, unknown>) {
   const { data, error } = await supabase
     .from("staff").update({ ...updates, updated_at: new Date().toISOString() })
@@ -815,6 +1015,62 @@ export async function updateStaff(id: string, updates: Record<string, unknown>) 
   if (error) throw error;
   await logAudit("update", "staff", id, updates);
   return data;
+}
+
+export async function sendStaffPasswordReset(staffId: string) {
+  const { data: staff, error: staffError } = await supabase
+    .from("staff")
+    .select("id, first_name, last_name, email")
+    .eq("id", staffId)
+    .single();
+
+  if (staffError || !staff) {
+    throw new Error("Staff record not found.");
+  }
+
+  const email = (staff.email ?? "").trim();
+  if (!email) {
+    throw new Error("This staff record has no email address.");
+  }
+
+  const options =
+    typeof window !== "undefined"
+      ? { redirectTo: `${window.location.origin}/reset-password` }
+      : undefined;
+
+  const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, options);
+  if (resetError) throw resetError;
+
+  await logAudit("password_reset", "staff", staff.id, { email });
+  return staff;
+}
+
+export async function sendMemberPasswordReset(memberId: string) {
+  const { data: member, error: memberError } = await supabase
+    .from("members")
+    .select("id, first_name, last_name, email")
+    .eq("id", memberId)
+    .single();
+
+  if (memberError || !member) {
+    throw new Error("Member record not found.");
+  }
+
+  const email = (member.email ?? "").trim();
+  if (!email) {
+    throw new Error("This member record has no email address.");
+  }
+
+  const options =
+    typeof window !== "undefined"
+      ? { redirectTo: `${window.location.origin}/reset-password` }
+      : undefined;
+
+  const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, options);
+  if (resetError) throw resetError;
+
+  await logAudit("password_reset", "member", member.id, { email });
+  return member;
 }
 
 // ─── Leave Requests ───

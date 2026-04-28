@@ -4,6 +4,7 @@ export type UserRole =
   | "branch_manager"
   | "finance_officer"
   | "loan_officer"
+  | "staff_member"
   | "front_desk"
   | "auditor"
   | "hr_manager"
@@ -75,6 +76,11 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "communication.messages",
     "reports.view",
   ],
+  staff_member: [
+    "loans.view", "loans.create",
+    "communication.messages",
+    "hr.leave_requests",
+  ],
   front_desk: [
     "members.view", "members.add",
     "savings.view", "savings.deposit",
@@ -105,6 +111,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   branch_manager: "Branch Manager",
   finance_officer: "Finance Officer",
   loan_officer: "Loan Officer",
+  staff_member: "Staff Member",
   front_desk: "Front Desk",
   auditor: "Auditor",
   hr_manager: "HR Manager",

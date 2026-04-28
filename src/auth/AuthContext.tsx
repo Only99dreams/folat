@@ -147,8 +147,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string
     ): Promise<{ success: boolean; error?: string }> => {
+      let loginEmail = email.trim();
+
+      // Allow staff sign-in using staff ID by resolving it to a staff email.
+      if (loginEmail && !loginEmail.includes("@")) {
+        const { data: staffRow, error: staffLookupError } = await supabase
+          .from("staff")
+          .select("email")
+          .ilike("staff_id", loginEmail)
+          .maybeSingle();
+
+        if (staffLookupError || !staffRow?.email) {
+          return { success: false, error: "Staff ID not found. Use your email address or contact admin." };
+        }
+
+        loginEmail = staffRow.email;
+      }
+
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: loginEmail,
         password,
       });
       if (error) return { success: false, error: error.message };
@@ -160,7 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         /* If profile doesn't exist yet, create one from auth metadata */
         if (!profile) {
           const meta = data.user.user_metadata ?? {};
-          const fullName = (meta.full_name as string) || email.split("@")[0];
+          const fullName = (meta.full_name as string) || loginEmail.split("@")[0];
           const initials = fullName
             .split(" ")
             .map((w: string) => w[0])
@@ -171,7 +188,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await supabase.from("profiles").upsert({
             id: data.user.id,
             full_name: fullName,
-            email: data.user.email ?? email,
+            email: data.user.email ?? loginEmail,
             phone: (meta.phone as string) ?? "",
             role: "unassigned" as UserRole,
             branch: "",
@@ -183,11 +200,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         /* Fallback: build user from auth metadata if profile still can't be loaded */
         if (!profile) {
           const meta = data.user.user_metadata ?? {};
-          const fallbackName = (meta.full_name as string) || email.split("@")[0];
+          const fallbackName = (meta.full_name as string) || loginEmail.split("@")[0];
           profile = buildUser({
             id: data.user.id,
             full_name: fallbackName,
-            email: data.user.email ?? email,
+            email: data.user.email ?? loginEmail,
             role: "unassigned" as UserRole,
             branch: null,
             avatar_initials: null,

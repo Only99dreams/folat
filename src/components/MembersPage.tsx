@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Eye,
   Pencil,
+  KeyRound,
   Users,
   UserPlus,
   ChevronLeft,
@@ -12,7 +13,9 @@ import {
   Calendar,
   Loader2,
 } from "lucide-react";
-import { fetchMembers, fetchBranches } from "../lib/db";
+import { fetchMembers, fetchBranches, sendMemberPasswordReset } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { confirmToast, toastError, toastSuccess } from "../lib/toast";
 
 const statusBadge = (status: Member["status"]) => {
   switch (status) {
@@ -66,6 +69,7 @@ const loanStatusBadge = (loanStatus: Member["loanStatus"]) => {
 };
 
 export default function MembersPage() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -75,7 +79,9 @@ export default function MembersPage() {
   const [totalMembers, setTotalMembers] = useState(0);
   const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [resettingPassword, setResettingPassword] = useState<string | null>(null);
   const perPage = 20;
+  const canResetPassword = user?.role === "super_admin";
   const totalPages = Math.max(1, Math.ceil(totalMembers / perPage));
 
   const loadMembers = useCallback(async () => {
@@ -114,6 +120,22 @@ export default function MembersPage() {
     `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase();
 
   const initColors = ["bg-navy-900 text-white", "bg-green-600 text-white", "bg-gray-500 text-white", "bg-blue-600 text-white"];
+
+  const handlePasswordReset = async (memberId: string, memberName: string) => {
+    if (!canResetPassword) return;
+    const confirmed = await confirmToast(`Send a password reset email to ${memberName}?`);
+    if (!confirmed) return;
+
+    setResettingPassword(memberId);
+    try {
+      await sendMemberPasswordReset(memberId);
+      toastSuccess(`Password reset email sent to ${memberName}.`);
+    } catch (err: any) {
+      toastError(err?.message || "Failed to send password reset email.");
+    } finally {
+      setResettingPassword(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -375,6 +397,16 @@ export default function MembersPage() {
                       >
                         <Pencil className="w-4 h-4" />
                       </Link>
+                      {canResetPassword && (
+                        <button
+                          onClick={() => handlePasswordReset(m.id, `${m.first_name} ${m.last_name}`)}
+                          disabled={resettingPassword === m.id}
+                          title="Reset Password"
+                          className="p-2 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
+                        >
+                          {resettingPassword === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

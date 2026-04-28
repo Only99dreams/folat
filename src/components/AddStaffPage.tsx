@@ -12,7 +12,8 @@ import {
   File,
   Loader2,
 } from "lucide-react";
-import { fetchBranches, createStaff, uploadFile, createDocument } from "../lib/db";
+import { fetchBranches, createStaff, uploadFile, createDocument, provisionStaffAuthUser } from "../lib/db";
+import { toastError, toastSuccess } from "../lib/toast";
 
 export default function AddStaffPage() {
   const navigate = useNavigate();
@@ -32,7 +33,7 @@ export default function AddStaffPage() {
     address: "",
     staffId: "",
     branch: "",
-    jobRole: "",
+    jobRole: "staff_member",
     dateJoined: new Date().toISOString().split("T")[0],
     employmentStatus: "full_time",
     username: "",
@@ -51,10 +52,23 @@ export default function AddStaffPage() {
 
   const handleSubmit = async () => {
     if (!form.firstName || !form.lastName || !form.email) { setError("First name, last name and email are required"); return; }
+    if (!form.password || form.password.length < 6) { setError("Password is required and must be at least 6 characters"); return; }
+    if (!form.jobRole) { setError("Please select a role for this staff account"); return; }
     setError("");
     setSubmitting(true);
     try {
+      const fullName = `${form.firstName} ${form.lastName}`.trim();
+      const authAccount = await provisionStaffAuthUser({
+        email: form.email,
+        password: form.password,
+        full_name: fullName,
+        phone: form.phone,
+        role: form.jobRole,
+        branch: form.branch || "",
+      });
+
       const staffData = await createStaff({
+        profile_id: authAccount.user_id,
         first_name: form.firstName,
         last_name: form.lastName,
         gender: form.gender,
@@ -89,8 +103,13 @@ export default function AddStaffPage() {
           await createDocument({ owner_type: "staff", owner_id: staffId, document_type: "resume", name: resumeFile.name, file_url: url, file_size: resumeFile.size, mime_type: resumeFile.type });
         } catch (e) { console.error("Resume upload failed:", e); }
       }
+      toastSuccess("Staff created and can log in immediately.");
       navigate("/hr/staff");
-    } catch (e: any) { setError(e.message || "Failed to add staff"); }
+    } catch (e: any) {
+      const message = e.message || "Failed to add staff";
+      setError(message);
+      toastError(message);
+    }
     setSubmitting(false);
   };
 
@@ -290,6 +309,7 @@ export default function AddStaffPage() {
               <option value="branch_manager">Branch Manager</option>
               <option value="finance_officer">Finance Officer</option>
               <option value="loan_officer">Loan Officer</option>
+              <option value="staff_member">Staff</option>
               <option value="front_desk">Front Desk</option>
               <option value="auditor">Auditor</option>
               <option value="hr_manager">HR Manager</option>

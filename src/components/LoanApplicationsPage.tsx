@@ -1,20 +1,47 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
   Search,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Download,
   Plus,
   Eye,
-  FileText,
   CheckCircle2,
   XCircle,
   Loader2,
 } from "lucide-react";
-import { fetchLoanApplications, fetchBranches } from "../lib/db";
+import { fetchLoanApplications, fetchBranches, updateLoanApplication } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { confirmToast, toastSuccess, toastError } from "../lib/toast";
 import ExportMenu from "./ExportMenu";
+
+type BranchRow = {
+  id: string;
+  name: string;
+};
+
+type LoanRow = {
+  id: string;
+  loan_id: string;
+  amount_requested: number;
+  purpose?: string;
+  loan_type: string;
+  status: string;
+  created_at: string;
+  guarantor1_name?: string;
+  guarantor1_approval_status?: string;
+  guarantor2_name?: string;
+  guarantor2_approval_status?: string;
+  member?: {
+    first_name?: string;
+    last_name?: string;
+    member_id?: string;
+  };
+  branch?: {
+    name?: string;
+  };
+};
 
 const avatarColors = [
   "bg-amber-100 text-amber-700",
@@ -52,7 +79,56 @@ const statusBadge = (status: string) => {
   );
 };
 
+const guarantorBadge = (loan: LoanRow) => {
+  const hasG1 = Boolean(loan.guarantor1_name?.trim());
+  const hasG2 = Boolean(loan.guarantor2_name?.trim());
+  const states = [
+    hasG1 ? loan.guarantor1_approval_status : null,
+    hasG2 ? loan.guarantor2_approval_status : null,
+  ].filter(Boolean) as string[];
+
+  if (states.length === 0) {
+    return (
+      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-gray-50 text-gray-500 border border-gray-200">
+        Not Set
+      </span>
+    );
+  }
+
+  if (states.includes("rejected")) {
+    return (
+      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
+        Rejected
+      </span>
+    );
+  }
+
+  if (states.includes("pending")) {
+    return (
+      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200">
+        Pending
+      </span>
+    );
+  }
+
+  if (states.every((s) => s === "approved")) {
+    return (
+      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-green-50 text-green-600 border border-green-200">
+        Approved
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-gray-50 text-gray-600 border border-gray-200">
+      Mixed
+    </span>
+  );
+};
+
 export default function LoanApplicationsPage() {
+  const { user } = useAuth();
+  const canApprove = user?.role === "super_admin" || user?.role === "branch_manager";
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
@@ -61,37 +137,46 @@ export default function LoanApplicationsPage() {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [selectAll, setSelectAll] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [loans, setLoans] = useState<any[]>([]);
+  const [loans, setLoans] = useState<LoanRow[]>([]);
   const [totalResults, setTotalResults] = useState(0);
-  const [branches, setBranches] = useState<any[]>([]);
+  const [branches, setBranches] = useState<BranchRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const perPage = 10;
   const totalPages = Math.ceil(totalResults / perPage) || 1;
 
   useEffect(() => {
-    fetchBranches().then(setBranches).catch(console.error);
+    fetchBranches().then((data) => setBranches((data ?? []) as BranchRow[])).catch(console.error);
   }, []);
 
-  useEffect(() => {
-    loadLoans();
-  }, [currentPage, statusFilter, branchFilter, search]);
-
-  async function loadLoans() {
+  const loadLoans = useCallback(async () => {
     setLoading(true);
     try {
-      const filters: any = { page: currentPage, per_page: perPage };
+      const filters: {
+        page: number;
+        per_page: number;
+        status?: string;
+        branch_id?: string;
+        search?: string;
+      } = { page: currentPage, per_page: perPage };
       if (statusFilter) filters.status = statusFilter;
       if (branchFilter) filters.branch_id = branchFilter;
       if (search.trim()) filters.search = search.trim();
       const { data, count } = await fetchLoanApplications(filters);
-      setLoans(data);
+      setLoans((data ?? []) as LoanRow[]);
       setTotalResults(count ?? 0);
     } catch (err) {
       console.error(err);
     }
     setLoading(false);
-  }
+  }, [branchFilter, currentPage, perPage, search, statusFilter]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void loadLoans();
+    }, 0);
+    return () => clearTimeout(t);
+  }, [loadLoans]);
 
   const toggleSelectAll = () => {
     if (selectAll) {
@@ -119,6 +204,34 @@ export default function LoanApplicationsPage() {
     setCurrentPage(1);
   };
 
+  const handleApprove = async (loanIds: string[]) => {
+    const confirmed = await confirmToast(`Approve ${loanIds.length > 1 ? loanIds.length + " loans" : "this loan"}?`);
+    if (!confirmed) return;
+    try {
+      await Promise.all(loanIds.map((id) => updateLoanApplication(id, { status: "approved" })));
+      toastSuccess(`${loanIds.length > 1 ? loanIds.length + " loans" : "Loan"} approved.`);
+      setSelectedRows(new Set());
+      setSelectAll(false);
+      void loadLoans();
+    } catch (err) {
+      toastError((err as Error)?.message || "Failed to approve.");
+    }
+  };
+
+  const handleReject = async (loanIds: string[]) => {
+    const confirmed = await confirmToast(`Reject ${loanIds.length > 1 ? loanIds.length + " loans" : "this loan"}?`);
+    if (!confirmed) return;
+    try {
+      await Promise.all(loanIds.map((id) => updateLoanApplication(id, { status: "rejected" })));
+      toastSuccess(`${loanIds.length > 1 ? loanIds.length + " loans" : "Loan"} rejected.`);
+      setSelectedRows(new Set());
+      setSelectAll(false);
+      void loadLoans();
+    } catch (err) {
+      toastError((err as Error)?.message || "Failed to reject.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
@@ -132,7 +245,7 @@ export default function LoanApplicationsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <ExportMenu data={() => loans.map((l: any) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount, Purpose: l.purpose || '', Status: l.status, Applied: l.created_at }))} filename="loan_applications" label="Export" />
+          <ExportMenu data={() => loans.map((l) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount_requested, Purpose: l.purpose || '', Status: l.status, Applied: l.created_at }))} filename="loan_applications" label="Export" />
           <Link to="/loans/new" className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
             <Plus className="w-4 h-4" />
             New Application
@@ -261,14 +374,22 @@ export default function LoanApplicationsPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-green-600 hover:bg-green-50 rounded-lg transition-colors">
-              <CheckCircle2 className="w-4 h-4" />
-              Approve
-            </button>
-            <button className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-              <XCircle className="w-4 h-4" />
-              Reject
-            </button>
+            {canApprove && selectedRows.size > 0 && (
+              <>
+                <button
+                  onClick={() => handleApprove(Array.from(selectedRows).map((i) => loans[i].id))}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-green-600 hover:bg-green-50 rounded-lg transition-colors">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Approve
+                </button>
+                <button
+                  onClick={() => handleReject(Array.from(selectedRows).map((i) => loans[i].id))}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                  <XCircle className="w-4 h-4" />
+                  Reject
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -294,6 +415,9 @@ export default function LoanApplicationsPage() {
                   Loan Type
                 </th>
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold text-center">
+                  Guarantor
+                </th>
+                <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold text-center">
                   Status
                 </th>
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
@@ -306,9 +430,9 @@ export default function LoanApplicationsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+                <tr><td colSpan={10} className="px-6 py-12 text-center"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
               ) : loans.length === 0 ? (
-                <tr><td colSpan={9} className="px-6 py-12 text-center text-sm text-gray-400">No loan applications found.</td></tr>
+                <tr><td colSpan={10} className="px-6 py-12 text-center text-sm text-gray-400">No loan applications found.</td></tr>
               ) : loans.map((loan, i) => (
                 <tr
                   key={loan.id}
@@ -340,10 +464,13 @@ export default function LoanApplicationsPage() {
                     <p className="text-sm text-gray-600">{loan.branch?.name || "—"}</p>
                   </td>
                   <td className="px-4 py-5">
-                    <p className="text-sm font-semibold text-navy-900">₦{Number(loan.amount).toLocaleString()}</p>
+                    <p className="text-sm font-semibold text-navy-900">₦{Number(loan.amount_requested).toLocaleString()}</p>
                   </td>
                   <td className="px-4 py-5 text-center">
                     {loanTypeBadge(loan.loan_type)}
+                  </td>
+                  <td className="px-4 py-5 text-center">
+                    {guarantorBadge(loan)}
                   </td>
                   <td className="px-4 py-5 text-center">
                     {statusBadge(loan.status)}
@@ -357,6 +484,22 @@ export default function LoanApplicationsPage() {
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <Eye className="w-4 h-4" />
                       </Link>
+                      {canApprove && loan.status === "pending" && (
+                        <>
+                          <button
+                            title="Approve"
+                            onClick={() => handleApprove([loan.id])}
+                            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
+                            <CheckCircle2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            title="Reject"
+                            onClick={() => handleReject([loan.id])}
+                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

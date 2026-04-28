@@ -21,6 +21,7 @@ import {
   Save,
 } from "lucide-react";
 import { fetchBranch, fetchMembers, fetchStaff, updateBranch } from "../lib/db";
+import { toastError } from "../lib/toast";
 
 const tabs = ["Overview", "Staff", "Members"];
 
@@ -70,7 +71,7 @@ export default function BranchDetailPage() {
       setShowEdit(false);
     } catch (err) {
       console.error(err);
-      alert("Failed to update branch");
+      toastError("Failed to update branch");
     }
     setSaving(false);
   };

@@ -11,7 +11,7 @@ ALTER TABLE public.profiles
 
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_role_check
-  CHECK (role IN ('super_admin','branch_manager','finance_officer','loan_officer','front_desk','auditor','hr_manager','unassigned'));
+  CHECK (role IN ('super_admin','branch_manager','finance_officer','loan_officer','staff_member','front_desk','auditor','hr_manager','unassigned'));
 
 -- Add status columns if missing
 DO $do1$ BEGIN
@@ -737,6 +737,65 @@ ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS signature_url text
 ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS father_name text DEFAULT '';
 -- Group ref for loan applications
 ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS group_id uuid REFERENCES public.groups(id);
+-- Guarantor staff directory + approval workflow
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor1_staff_id uuid REFERENCES public.staff(id);
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor1_email text DEFAULT '';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor1_phone text DEFAULT '';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor1_eligibility text DEFAULT 'not_eligible';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor1_approval_status text DEFAULT 'pending';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor1_approval_note text DEFAULT '';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor1_approved_at timestamptz;
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor2_staff_id uuid REFERENCES public.staff(id);
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor2_email text DEFAULT '';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor2_phone text DEFAULT '';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor2_eligibility text DEFAULT 'not_eligible';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor2_approval_status text DEFAULT 'pending';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor2_approval_note text DEFAULT '';
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS guarantor2_approved_at timestamptz;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'loan_applications_guarantor1_approval_status_check'
+      AND conrelid = 'public.loan_applications'::regclass
+  ) THEN
+    ALTER TABLE public.loan_applications
+      ADD CONSTRAINT loan_applications_guarantor1_approval_status_check
+      CHECK (guarantor1_approval_status IN ('pending','approved','rejected'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'loan_applications_guarantor2_approval_status_check'
+      AND conrelid = 'public.loan_applications'::regclass
+  ) THEN
+    ALTER TABLE public.loan_applications
+      ADD CONSTRAINT loan_applications_guarantor2_approval_status_check
+      CHECK (guarantor2_approval_status IN ('pending','approved','rejected'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'loan_applications_guarantor1_eligibility_check'
+      AND conrelid = 'public.loan_applications'::regclass
+  ) THEN
+    ALTER TABLE public.loan_applications
+      ADD CONSTRAINT loan_applications_guarantor1_eligibility_check
+      CHECK (guarantor1_eligibility IN ('eligible','not_eligible'));
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'loan_applications_guarantor2_eligibility_check'
+      AND conrelid = 'public.loan_applications'::regclass
+  ) THEN
+    ALTER TABLE public.loan_applications
+      ADD CONSTRAINT loan_applications_guarantor2_eligibility_check
+      CHECK (guarantor2_eligibility IN ('eligible','not_eligible'));
+  END IF;
+END
+$$;
 
 -- Document URL for fund requests
 ALTER TABLE public.fund_requests ADD COLUMN IF NOT EXISTS document_url text DEFAULT '';
@@ -745,6 +804,9 @@ ALTER TABLE public.fund_requests ADD COLUMN IF NOT EXISTS justification text DEF
 
 -- Avatar URL for profile photos
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url text DEFAULT '';
+
+-- Staff guarantor eligibility (set by backend rules only)
+ALTER TABLE public.staff ADD COLUMN IF NOT EXISTS guarantor_eligible boolean NOT NULL DEFAULT false;
 
 -- ────────────────────────────────────────────
 -- 24. WEEKLY PAYMENT TRACKING (booklet-to-digital workflow)

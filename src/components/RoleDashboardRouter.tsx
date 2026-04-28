@@ -6,6 +6,7 @@ import LoanOfficerDashboard from "./LoanOfficerDashboard";
 import FrontDeskDashboard from "./FrontDeskDashboard";
 import AuditorDashboard from "./AuditorDashboard";
 import HRDashboardPage from "./HRDashboardPage";
+import StaffDashboardPage from "./StaffDashboardPage";
 import NewUserDashboard from "./NewUserDashboard";
 
 export default function RoleDashboardRouter() {
@@ -20,6 +21,8 @@ export default function RoleDashboardRouter() {
       return <FinanceOfficerDashboard />;
     case "loan_officer":
       return <LoanOfficerDashboard />;
+    case "staff_member":
+      return <StaffDashboardPage />;
     case "front_desk":
       return <FrontDeskDashboard />;
     case "auditor":

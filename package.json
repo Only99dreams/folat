@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "import:staff-users": "node scripts/import-staff-users.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.100.0",

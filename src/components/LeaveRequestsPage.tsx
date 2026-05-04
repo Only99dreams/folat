@@ -9,6 +9,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchLeaveRequests, reviewLeaveRequest } from "../lib/db";
+import { toastSuccess, toastError } from "../lib/toast";
 
 const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500","bg-pink-600","bg-teal-600"];
 
@@ -38,11 +39,22 @@ const leaveTypeBadge = (type: string) => {
   return styles[type] || "bg-gray-100 text-gray-700";
 };
 
+// Calculate days between two dates (inclusive)
+const calculateLeaveDays = (startDate: string, endDate: string): number => {
+  if (!startDate || !endDate) return 0;
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end date
+  return diffDays;
+};
+
 export default function LeaveRequestsPage() {
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
+  const [reviewing, setReviewing] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -51,17 +63,25 @@ export default function LeaveRequestsPage() {
       if (statusFilter) filters.status = statusFilter;
       const data = await fetchLeaveRequests(filters);
       setRequests(typeFilter ? data.filter((r: any) => r.leave_type === typeFilter) : data);
-    } catch {}
+    } catch (err) {
+      toastError("Failed to load leave requests");
+    }
     setLoading(false);
   };
 
   useEffect(() => { loadData(); }, [statusFilter, typeFilter]);
 
   const handleAction = async (id: string, status: "approved" | "rejected") => {
+    setReviewing(id);
     try {
       await reviewLeaveRequest(id, status, "");
+      toastSuccess(`Leave request ${status}`);
       loadData();
-    } catch {}
+    } catch (err: any) {
+      toastError(err.message || `Failed to ${status} leave request`);
+    } finally {
+      setReviewing(null);
+    }
   };
   return (
     <div className="space-y-6">
@@ -169,7 +189,7 @@ export default function LeaveRequestsPage() {
                   Start Date
                 </th>
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
-                  End Date
+                  Days
                 </th>
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
                   Status
@@ -188,15 +208,16 @@ export default function LeaveRequestsPage() {
                 const staffName = req.staff ? `${req.staff.first_name ?? ""} ${req.staff.last_name ?? ""}`.trim() : "Unknown";
                 const initials = staffName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
                 const bgColor = avatarColors[i % avatarColors.length];
+                const leaveDays = calculateLeaveDays(req.start_date, req.end_date);
                 return (
                 <tr key={req.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-4"><p className="text-sm text-gray-600">{req.id.slice(0,8)}</p></td>
                   <td className="px-4 py-4"><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${bgColor}`}>{initials}</div><p className="text-sm font-semibold text-navy-900">{staffName}</p></div></td>
                   <td className="px-4 py-4"><span className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${leaveTypeBadge(req.leave_type)}`}>{(req.leave_type || "").charAt(0).toUpperCase() + (req.leave_type || "").slice(1)}</span></td>
                   <td className="px-4 py-4"><p className="text-sm text-gray-600">{req.start_date ? new Date(req.start_date).toLocaleDateString("en-NG",{year:"numeric",month:"short",day:"numeric"}) : "—"}</p></td>
-                  <td className="px-4 py-4"><p className="text-sm text-gray-600">{req.end_date ? new Date(req.end_date).toLocaleDateString("en-NG",{year:"numeric",month:"short",day:"numeric"}) : "—"}</p></td>
+                  <td className="px-4 py-4"><p className="text-sm font-semibold text-navy-900">{leaveDays} days</p></td>
                   <td className="px-4 py-4">{statusDisplay(req.status)}</td>
-                  <td className="px-4 py-4"><div className="flex items-center justify-end gap-1.5">{req.status === "pending" && (<><button onClick={() => handleAction(req.id, "approved")} className="p-1.5 text-green-600 hover:text-green-700 transition-colors"><CheckCircle2 className="w-5 h-5" /></button><button onClick={() => handleAction(req.id, "rejected")} className="p-1.5 text-red-500 hover:text-red-600 transition-colors"><XCircle className="w-5 h-5" /></button></>)}<button className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Eye className="w-5 h-5" /></button></div></td>
+                  <td className="px-4 py-4"><div className="flex items-center justify-end gap-1.5">{req.status === "pending" && (<><button onClick={() => handleAction(req.id, "approved")} disabled={reviewing === req.id} className="p-1.5 text-green-600 hover:text-green-700 transition-colors disabled:opacity-50"><CheckCircle2 className="w-5 h-5" /></button><button onClick={() => handleAction(req.id, "rejected")} disabled={reviewing === req.id} className="p-1.5 text-red-500 hover:text-red-600 transition-colors disabled:opacity-50"><XCircle className="w-5 h-5" /></button></>)}<button className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Eye className="w-5 h-5" /></button></div></td>
                 </tr>
                 );
               })}

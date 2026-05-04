@@ -32,9 +32,127 @@ export default function SavingsDashboardPage() {
   const [recentTxns, setRecentTxns] = useState<any[]>([]);
   const [topSavers, setTopSavers] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [rangeStats, setRangeStats] = useState({ deposits: 0, withdrawals: 0 });
 
   const ranges = ["7d", "30d", "6m", "12m"];
 
+  // Calculate date range based on selected range
+  const getDateRange = (range: string) => {
+    const now = new Date();
+    const startDate = new Date(now);
+    
+    switch (range) {
+      case "7d":
+        startDate.setDate(now.getDate() - 7);
+        break;
+      case "30d":
+        startDate.setDate(now.getDate() - 30);
+        break;
+      case "6m":
+        startDate.setMonth(now.getMonth() - 6);
+        break;
+      case "12m":
+        startDate.setFullYear(now.getFullYear() - 1);
+        break;
+    }
+    
+    startDate.setHours(0, 0, 0, 0);
+    return { startDate, endDate: now };
+  };
+
+  // Load chart data for selected range
+  const loadChartData = async (range: string) => {
+    const { startDate, endDate } = getDateRange(range);
+    const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+    const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+    
+    try {
+      const { data: chartTxns } = await supabase
+        .from("savings_transactions")
+        .select("type, amount, created_at")
+        .gte("created_at", startDate.toISOString())
+        .lte("created_at", endDate.toISOString());
+
+      const cData: any[] = [];
+      
+      if (range === "7d") {
+        // 7 days: by day
+        for (let i = 6; i >= 0; i--) {
+          const d = new Date(endDate);
+          d.setDate(d.getDate() - i);
+          const dateStr = d.toISOString().slice(0, 10);
+          const dayTxns = (chartTxns ?? []).filter((t: any) => t.created_at?.slice(0, 10) === dateStr);
+          cData.push({
+            label: days[d.getDay()],
+            deposits: dayTxns.filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0),
+            withdrawals: dayTxns.filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0),
+          });
+        }
+      } else if (range === "30d") {
+        // 30 days: by week
+        for (let w = 4; w >= 0; w--) {
+          const weekStart = new Date(endDate);
+          weekStart.setDate(weekStart.getDate() - w * 7 - 6);
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          
+          const weekTxns = (chartTxns ?? []).filter((t: any) => {
+            const txnDate = new Date(t.created_at);
+            return txnDate >= weekStart && txnDate <= weekEnd;
+          });
+          
+          cData.push({
+            label: `W${5 - w}`,
+            deposits: weekTxns.filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0),
+            withdrawals: weekTxns.filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0),
+          });
+        }
+      } else if (range === "6m") {
+        // 6 months: by month
+        for (let m = 5; m >= 0; m--) {
+          const d = new Date(endDate);
+          d.setMonth(d.getMonth() - m);
+          const monthStr = `${months[d.getMonth()]} ${d.getDate()}`;
+          const monthTxns = (chartTxns ?? []).filter((t: any) => {
+            const txnDate = new Date(t.created_at);
+            return txnDate.getMonth() === d.getMonth() && txnDate.getFullYear() === d.getFullYear();
+          });
+          cData.push({
+            label: monthStr,
+            deposits: monthTxns.filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0),
+            withdrawals: monthTxns.filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0),
+          });
+        }
+      } else if (range === "12m") {
+        // 12 months: by month
+        for (let m = 11; m >= 0; m--) {
+          const d = new Date(endDate);
+          d.setMonth(d.getMonth() - m);
+          const monthStr = `${months[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`;
+          const monthTxns = (chartTxns ?? []).filter((t: any) => {
+            const txnDate = new Date(t.created_at);
+            return txnDate.getMonth() === d.getMonth() && txnDate.getFullYear() === d.getFullYear();
+          });
+          cData.push({
+            label: monthStr,
+            deposits: monthTxns.filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0),
+            withdrawals: monthTxns.filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0),
+          });
+        }
+      }
+      
+      setChartData(cData);
+      
+      // Calculate stats for range
+      const totalDeposits = (chartTxns ?? []).filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0);
+      const totalWithdrawals = (chartTxns ?? []).filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0);
+      setRangeStats({ deposits: totalDeposits, withdrawals: totalWithdrawals });
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Initial load
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -68,33 +186,17 @@ export default function SavingsDashboardPage() {
           .limit(4);
         setTopSavers(top ?? []);
 
-        // Chart data — last 7 days from real transactions
-        const days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-        const now = new Date();
-        const weekAgo = new Date(now);
-        weekAgo.setDate(weekAgo.getDate() - 6);
-        weekAgo.setHours(0, 0, 0, 0);
-        const { data: chartTxns } = await supabase
-          .from("savings_transactions")
-          .select("type, amount, created_at")
-          .gte("created_at", weekAgo.toISOString());
-        const cData: any[] = [];
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          const dateStr = d.toISOString().slice(0, 10);
-          const dayTxns = (chartTxns ?? []).filter((t: any) => t.created_at?.slice(0, 10) === dateStr);
-          cData.push({
-            day: days[d.getDay()],
-            deposits: dayTxns.filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0),
-            withdrawals: dayTxns.filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0),
-          });
-        }
-        setChartData(cData);
+        // Load initial chart with 7d
+        await loadChartData("7d");
       } catch (e) { console.error(e); }
       setLoading(false);
     })();
   }, []);
+
+  // Update chart when range changes
+  useEffect(() => {
+    loadChartData(chartRange);
+  }, [chartRange]);
 
   return (
     <div className="space-y-6">
@@ -209,7 +311,7 @@ export default function SavingsDashboardPage() {
                     stroke="#f0f0f0"
                   />
                   <XAxis
-                    dataKey="day"
+                    dataKey="label"
                     tick={{ fontSize: 11, fill: "#9ca3af" }}
                     axisLine={false}
                     tickLine={false}

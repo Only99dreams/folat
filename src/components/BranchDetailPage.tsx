@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import {
   ArrowLeft,
   Pencil,
@@ -21,12 +23,15 @@ import {
   Save,
 } from "lucide-react";
 import { fetchBranch, fetchMembers, fetchStaff, updateBranch } from "../lib/db";
-import { toastError } from "../lib/toast";
+import { toastError, toastSuccess } from "../lib/toast";
 
 const tabs = ["Overview", "Staff", "Members"];
 
 export default function BranchDetailPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
+  
   const [activeTab, setActiveTab] = useState("Overview");
   const [branch, setBranch] = useState<any>(null);
   const [memberCount, setMemberCount] = useState(0);
@@ -41,34 +46,55 @@ export default function BranchDetailPage() {
   const [saving, setSaving] = useState(false);
 
   const loadBranch = async () => {
-    if (!id) return;
     setLoading(true);
     try {
-      const b = await fetchBranch(id);
+      let branchId = id;
+      
+      // If no ID provided and user is branch_manager, use their branch
+      if (!id && user?.role === "branch_manager" && user?.branch) {
+        const { data: branchData } = await supabase
+          .from("branches")
+          .select("id")
+          .ilike("name", user.branch)
+          .single();
+        branchId = branchData?.id;
+      }
+
+      if (!branchId) {
+        toastError("Branch not found");
+        navigate("/dashboard");
+        return;
+      }
+
+      const b = await fetchBranch(branchId);
       setBranch(b);
       setEditForm({ name: b.name, address: b.address, city: b.city, state: b.state, phone: b.phone, email: b.email });
-      const mResult = await fetchMembers({ branch_id: id });
+      
+      const mResult = await fetchMembers({ branch_id: branchId });
       setMembers(mResult.data);
       setMemberCount(mResult.count ?? mResult.data.length);
-      const sResult = await fetchStaff({ branch_id: id });
+      
+      const sResult = await fetchStaff({ branch_id: branchId });
       const staffArr = Array.isArray(sResult) ? sResult : [];
       setStaff(staffArr);
       setStaffCount(staffArr.length);
     } catch (err) {
       console.error(err);
+      toastError("Failed to load branch data");
     }
     setLoading(false);
   };
 
-  useEffect(() => { loadBranch(); }, [id]);
+  useEffect(() => { loadBranch(); }, [id, user]);
 
   const handleSave = async () => {
-    if (!id) return;
+    if (!branch?.id) return;
     setSaving(true);
     try {
-      const updated = await updateBranch(id, editForm);
+      const updated = await updateBranch(branch.id, editForm);
       setBranch({ ...branch, ...updated });
       setShowEdit(false);
+      toastSuccess("Branch updated successfully");
     } catch (err) {
       console.error(err);
       toastError("Failed to update branch");

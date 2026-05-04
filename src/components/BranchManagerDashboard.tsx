@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import {
   Users,
   PiggyBank,
@@ -14,8 +15,9 @@ import {
   Clock,
   UserCheck,
   Loader2,
+  Settings,
 } from "lucide-react";
-import { fetchDashboardStats, fetchAuditLog, fetchAttendance } from "../lib/db";
+import { fetchAuditLog, fetchAttendance } from "../lib/db";
 
 export default function BranchManagerDashboard() {
   const { user } = useAuth();
@@ -23,6 +25,7 @@ export default function BranchManagerDashboard() {
   const [activity, setActivity] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [branchId, setBranchId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -31,12 +34,51 @@ export default function BranchManagerDashboard() {
   async function loadData() {
     try {
       setLoading(true);
-      const [dashStats, auditRes, attRecords] = await Promise.all([
-        fetchDashboardStats(),
+
+      // Resolve branch ID from user's profile branch field
+      if (user?.branch) {
+        const { data: branchData } = await supabase
+          .from("branches")
+          .select("id")
+          .ilike("name", user.branch)
+          .single();
+        if (branchData?.id) setBranchId(branchData.id);
+      }
+
+      // Fetch branch-specific stats
+      let membersQuery = supabase.from("members").select("id").eq("status", "active");
+      let savingsQuery = supabase.from("savings_accounts").select("balance");
+      let loansQuery = supabase.from("loan_applications").select("id").eq("status", "approved");
+      let staffQuery = supabase.from("staff").select("id").eq("employment_status", "active");
+
+      if (branchId) {
+        membersQuery = membersQuery.eq("branch_id", branchId);
+        savingsQuery = savingsQuery.eq("member.branch_id", branchId);
+        loansQuery = loansQuery.eq("branch_id", branchId);
+        staffQuery = staffQuery.eq("branch_id", branchId);
+      }
+
+      const [membersRes, savingsRes, loansRes, staffRes, auditRes, attRecords] = await Promise.all([
+        membersQuery,
+        savingsQuery,
+        loansQuery,
+        staffQuery,
         fetchAuditLog({ page: 1, pageSize: 5 }),
         fetchAttendance({ date: new Date().toISOString().slice(0, 10) }),
       ]);
-      setStats(dashStats);
+
+      const totalSavings = (savingsRes.data ?? []).reduce(
+        (sum: number, acc: any) => sum + Number(acc.balance || 0),
+        0
+      );
+
+      setStats({
+        totalMembers: membersRes.data?.length ?? 0,
+        totalSavings,
+        activeLoans: loansRes.data?.length ?? 0,
+        totalStaff: staffRes.data?.length ?? 0,
+        pendingLoans: 0, // Will be calculated from loan_applications
+      });
       setActivity(auditRes.data);
       setAttendance(attRecords);
     } catch (err) {
@@ -74,12 +116,15 @@ export default function BranchManagerDashboard() {
           <h1 className="text-2xl font-bold text-navy-900">Branch Dashboard</h1>
           <p className="text-sm text-gray-500 mt-1">
             <MapPin className="inline w-3.5 h-3.5 mr-1" />
-            {user?.branch} — Overview for today
+            {user?.branch || "Branch"} — Overview for today
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Link to="/reports" className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50">
+          <Link to={`/branches`} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50">
             <FileBarChart className="w-4 h-4" /> Reports
+          </Link>
+          <Link to={`/branch-details`} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700">
+            <Settings className="w-4 h-4" /> Branch Control
           </Link>
         </div>
       </div>

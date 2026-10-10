@@ -13,6 +13,8 @@ import {
   Users,
 } from "lucide-react";
 import { fetchStaff, fetchBranches, recordAttendance, fetchAttendance } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const avatarColors = [
   "bg-blue-600",
@@ -51,6 +53,7 @@ const statusBadge = (status: string) => {
 };
 
 export default function RecordAttendancePage() {
+  const { user } = useAuth();
   const [staffList, setStaffList] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [attendance, setAttendance] = useState<Record<string, any>>({});
@@ -65,6 +68,19 @@ export default function RecordAttendancePage() {
   const [error, setError] = useState("");
   const [lateModal, setLateModal] = useState<{ staff: any; clockInTime: string } | null>(null);
   const [lateReason, setLateReason] = useState("");
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     loadData();
@@ -74,7 +90,7 @@ export default function RecordAttendancePage() {
     setLoading(true);
     try {
       const [staffData, branchData, attendanceData] = await Promise.all([
-        fetchStaff({ branch_id: branchFilter || undefined }),
+        fetchStaff({ branch_id: branchFilter || undefined, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
         fetchBranches(),
         fetchAttendance({ date: selectedDate, branch_id: branchFilter || undefined }),
       ]);
@@ -261,21 +277,23 @@ export default function RecordAttendancePage() {
             onChange={(e) => setSelectedDate(e.target.value)}
             className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500"
           />
-          <div className="relative">
-            <select
-              value={branchFilter}
-              onChange={(e) => setBranchFilter(e.target.value)}
-              className="appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
-            >
-              <option value="">All Branches</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          </div>
+          {!isRestricted && (
+            <div className="relative">
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-xl text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500 bg-white"
+              >
+                <option value="">All Branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          )}
         </div>
       </div>
 

@@ -54,7 +54,8 @@ export default function CreateGroupPage() {
   /* ── Load branches & members for dropdowns ── */
   useEffect(() => {
     fetchBranches().then(setBranches).catch(console.error);
-    fetchMembers().then((r) => setAllMembers(r.data)).catch(console.error);
+    const userObj = profile ? { id: profile.id, role: profile.role, branch: profile.branch } : undefined;
+    fetchMembers({ user: userObj }).then((r) => setAllMembers(r.data)).catch(console.error);
   }, []);
 
   /* ── Auto-generate group code from name ── */
@@ -73,11 +74,12 @@ export default function CreateGroupPage() {
     if (q.trim().length < 2) { setSearchResults([]); return; }
     setSearching(true);
     try {
-      const { data } = await fetchMembers({ search: q });
+      const userObj = profile ? { id: profile.id, role: profile.role, branch: profile.branch } : undefined;
+      const { data } = await fetchMembers({ search: q, user: userObj });
       setSearchResults(data.filter((m: any) => !assignedMembers.find((a) => a.id === m.id)));
     } catch { setSearchResults([]); }
     setSearching(false);
-  }, [assignedMembers]);
+  }, [assignedMembers, profile]);
 
   const addMember = (member: any) => {
     setAssignedMembers((prev) => [...prev, member]);

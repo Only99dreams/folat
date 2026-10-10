@@ -10,7 +10,7 @@ import {
   Clock,
   Loader2,
 } from "lucide-react";
-import { fetchFundRequest, reviewFundRequest } from "../lib/db";
+import { fetchFundRequest, reviewFundRequest, getTotalAvailableFunds } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 
 export default function FundRequestReviewPage() {
@@ -23,12 +23,30 @@ export default function FundRequestReviewPage() {
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [availableFunds, setAvailableFunds] = useState(0);
+  const [branchIncome, setBranchIncome] = useState(0);
+  const [branchExpenses, setBranchExpenses] = useState(0);
 
   useEffect(() => {
     if (!id) return;
     (async () => {
       setLoading(true);
-      try { setRequest(await fetchFundRequest(id)); } catch {}
+      try { 
+        const fundRequest = await fetchFundRequest(id);
+        setRequest(fundRequest);
+        
+        // Fetch available funds
+        const totalFunds = await getTotalAvailableFunds();
+        setAvailableFunds(Number(totalFunds) || 0);
+        
+        // If this request has a branch, we could fetch branch-specific data here
+        // For now, use available funds as the primary financial indicator
+        if (fundRequest?.branch_id) {
+          // Could fetch branch-specific income/expenses here
+          setBranchIncome(0);
+          setBranchExpenses(0);
+        }
+      } catch {}
       setLoading(false);
     })();
   }, [id]);
@@ -134,7 +152,7 @@ export default function FundRequestReviewPage() {
                 <p className="text-xs text-gray-400 font-medium mb-1">
                   Total Income
                 </p>
-                <p className="text-xl font-bold text-green-600">₦3,000,000</p>
+                <p className="text-xl font-bold text-green-600">₦{branchIncome.toLocaleString()}</p>
               </div>
 
               {/* Total Expenses */}
@@ -142,7 +160,7 @@ export default function FundRequestReviewPage() {
                 <p className="text-xs text-gray-400 font-medium mb-1">
                   Total Expenses
                 </p>
-                <p className="text-xl font-bold text-red-500">₦1,200,000</p>
+                <p className="text-xl font-bold text-red-500">₦{branchExpenses.toLocaleString()}</p>
               </div>
 
               {/* Available Balance */}
@@ -150,22 +168,26 @@ export default function FundRequestReviewPage() {
                 <p className="text-xs text-gray-400 font-medium mb-1">
                   Available Balance
                 </p>
-                <p className="text-xl font-bold text-navy-900">₦1,800,000</p>
+                <p className="text-xl font-bold text-navy-900">₦{availableFunds.toLocaleString()}</p>
               </div>
             </div>
 
             {/* Progress bar */}
-            <div className="mb-2">
-              <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-600 rounded-full"
-                  style={{ width: "27.7%" }}
-                />
+            {availableFunds > 0 && request && (
+              <div className="mb-2">
+                <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-600 rounded-full"
+                    style={{ width: `${Math.min(100, (Number(request.amount) / availableFunds) * 100)}%` }}
+                  />
+                </div>
               </div>
-            </div>
-            <p className="text-xs text-gray-400">
-              Request is 27.7% of available branch balance.
-            </p>
+            )}
+            {request && availableFunds > 0 && (
+              <p className="text-xs text-gray-400">
+                Request is {((Number(request.amount) / availableFunds) * 100).toFixed(1)}% of available branch balance.
+              </p>
+            )}
           </div>
         </div>
 

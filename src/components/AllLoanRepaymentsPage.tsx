@@ -13,6 +13,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchLoanRepayments, fetchBranches } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import ExportMenu from "./ExportMenu";
 
 const avatarColors = [
@@ -25,6 +27,7 @@ const avatarColors = [
 ];
 
 export default function AllLoanRepaymentsPage() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [repayments, setRepayments] = useState<any[]>([]);
@@ -33,6 +36,7 @@ export default function AllLoanRepaymentsPage() {
   const [branch, setBranch] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [loading, setLoading] = useState(true);
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
   const perPage = 10;
   const totalPages = Math.max(1, Math.ceil(totalResults / perPage));
 
@@ -41,13 +45,25 @@ export default function AllLoanRepaymentsPage() {
   }, []);
 
   useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranch(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
+
+  useEffect(() => {
     setLoading(true);
-    fetchLoanRepayments({ page: currentPage, pageSize: perPage })
+    fetchLoanRepayments({ page: currentPage, pageSize: perPage, branch_id: branch || undefined })
       .then(({ data, count }) => {
         setRepayments(data);
         setTotalResults(count);
       }).catch(() => {}).finally(() => setLoading(false));
-  }, [currentPage]);
+  }, [currentPage, branch]);
 
   return (
     <div className="space-y-6">
@@ -77,7 +93,7 @@ export default function AllLoanRepaymentsPage() {
           <span className="text-xs text-gray-400 font-semibold tracking-wide uppercase">
             Export Data:
           </span>
-          <ExportMenu data={() => repayments.map((r: any) => ({ LoanID: r.loan?.loan_id || '', Member: (r.loan?.member?.first_name || '') + ' ' + (r.loan?.member?.last_name || ''), Amount: r.amount, Method: r.payment_method, Date: r.payment_date, Reference: r.reference || '' }))} filename="loan_repayments" label="Export" className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors" />
+          <ExportMenu data={() => repayments.map((r: any) => ({ LoanID: r.loan?.loan_id || '', Member: (r.loan?.member?.first_name || '') + ' ' + (r.loan?.member?.last_name || ''), Amount: r.amount, Method: r.payment_method, Date: r.paid_date, Reference: r.reference || '' }))} filename="loan_repayments" label="Export" className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors" />
         </div>
       </div>
 
@@ -149,24 +165,26 @@ export default function AllLoanRepaymentsPage() {
           </div>
 
           {/* Branch */}
-          <div>
-            <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1.5">
-              Branch
-            </p>
-            <div className="relative">
-              <select
-                value={branch}
-                onChange={(e) => setBranch(e.target.value)}
-                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
-              >
-                <option value="">All Branches</option>
-                {branches.map((b: any) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          {!isRestricted && (
+            <div>
+              <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1.5">
+                Branch
+              </p>
+              <div className="relative">
+                <select
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
+                >
+                  <option value="">All Branches</option>
+                  {branches.map((b: any) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Payment Method */}
           <div>

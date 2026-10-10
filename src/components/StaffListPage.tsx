@@ -12,9 +12,11 @@ import {
   ChevronRight,
   Loader2,
   X,
+  PiggyBank,
 } from "lucide-react";
-import { fetchStaff, fetchBranches, updateStaff, sendStaffPasswordReset, provisionStaffAuthUser } from "../lib/db";
+import { fetchStaff, fetchBranches, updateStaff, sendStaffPasswordReset, provisionStaffAuthUser, syncStaffCooperativeMember, recordBulkSavingsDeposits } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import { confirmToast, toastError, toastSuccess } from "../lib/toast";
 
 const statusDot = (status: string) => {
@@ -38,6 +40,7 @@ export default function StaffListPage() {
   const [branches, setBranches] = useState<any[]>([]);
   const [branchFilter, setBranchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [suspending, setSuspending] = useState<string | null>(null);
@@ -45,11 +48,33 @@ export default function StaffListPage() {
   const [page, setPage] = useState(1);
   const pageSize = 20;
   const canResetPassword = user?.role === "super_admin";
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   // Create Login Access modal state
   const [loginAccessStaff, setLoginAccessStaff] = useState<any | null>(null);
   const [loginPassword, setLoginPassword] = useState("");
   const [provisioningLogin, setProvisioningLogin] = useState(false);
+
+  // Record Savings modal state
+  const [savingsModalStaff, setSavingsModalStaff] = useState<any | null>(null);
+  const [savingsMonths, setSavingsMonths] = useState<number>(1);
+  const [savingsAmount, setSavingsAmount] = useState<number>(0);
+  const [savingsNotes, setSavingsNotes] = useState("");
+  const [savingsLoading, setSavingsLoading] = useState(false);
+  const [savingsError, setSavingsError] = useState("");
+  const [savingsSuccess, setSavingsSuccess] = useState("");
 
   function generatePassword() {
     const chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!";
@@ -104,13 +129,14 @@ export default function StaffListPage() {
         const filters: any = {};
         if (branchFilter) filters.branch_id = branchFilter;
         if (statusFilter) filters.status = statusFilter;
+        if (roleFilter) filters.job_role = roleFilter;
         if (search) filters.search = search;
-        const data = await fetchStaff(filters);
+        const data = await fetchStaff({ ...filters, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined });
         setStaffList(data);
       } catch {}
       setLoading(false);
     })();
-  }, [branchFilter, statusFilter, search]);
+  }, [branchFilter, statusFilter, roleFilter, search]);
 
   const handleSuspend = async (staffId: string, currentStatus: string) => {
     const newStatus = currentStatus === "active" ? "suspended" : "active";
@@ -147,6 +173,37 @@ export default function StaffListPage() {
     }
   };
 
+  const handleRecordSavings = async () => {
+    if (!savingsModalStaff) return;
+    setSavingsLoading(true);
+    setSavingsError("");
+    setSavingsSuccess("");
+    try {
+      const { member } = await syncStaffCooperativeMember(savingsModalStaff, { created_by: user?.id });
+      if (!member?.id) throw new Error("Failed to create/find cooperative member record");
+
+      const result = await recordBulkSavingsDeposits({
+        member_id: member.id,
+        amount_per_month: savingsAmount,
+        months: savingsMonths,
+        notes: savingsNotes || "Manual savings by admin",
+        recorded_by: user?.id || "",
+        branch_id: savingsModalStaff.branch_id || undefined,
+      });
+
+      setSavingsSuccess(
+        `${savingsMonths} month${savingsMonths > 1 ? "s" : ""} of savings recorded! Total: ₦${result.total.toLocaleString()}`
+      );
+      setSavingsMonths(1);
+      setSavingsAmount(0);
+      setSavingsNotes("");
+      setTimeout(() => { setSavingsSuccess(""); setSavingsModalStaff(null); }, 3000);
+    } catch (err: any) {
+      setSavingsError(err?.message || "Failed to record savings");
+    }
+    setSavingsLoading(false);
+  };
+
   const totalPages = Math.max(1, Math.ceil(staffList.length / pageSize));
   const paginatedStaff = staffList.slice((page - 1) * pageSize, page * pageSize);
   return (
@@ -181,23 +238,29 @@ export default function StaffListPage() {
               className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
           </div>
-          <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[140px]">
-            <option value="">All Branches</option>
-            {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-          <select className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[120px]">
-            <option>All Roles</option>
-            <option>Admin</option>
-            <option>Loan Officer</option>
-            <option>Accountant</option>
-            <option>HR Manager</option>
-            <option>Branch Manager</option>
+          {!isRestricted && (
+            <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[140px]">
+              <option value="">All Branches</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
+          <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[140px]">
+            <option value="">All Roles</option>
+            <option value="super_admin">Super Admin</option>
+            <option value="branch_manager">Branch Manager</option>
+            <option value="finance_officer">Finance Officer</option>
+            <option value="loan_officer">Loan Officer</option>
+            <option value="staff_member">Staff</option>
+            <option value="front_desk">Front Desk</option>
+            <option value="auditor">Auditor</option>
+            <option value="hr_manager">HR Manager</option>
           </select>
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none min-w-[140px]">
             <option value="">All Statuses</option>
             <option value="active">Active</option>
             <option value="suspended">Suspended</option>
             <option value="resigned">Resigned</option>
+            <option value="terminated">Terminated</option>
           </select>
         </div>
 
@@ -275,6 +338,20 @@ export default function StaffListPage() {
                           {resettingPassword === staff.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
                         </button>
                       )}
+                      <button
+                        onClick={() => {
+                          setSavingsModalStaff(staff);
+                          setSavingsMonths(1);
+                          setSavingsAmount(staff.cooperative_savings_amount || 7000);
+                          setSavingsNotes("");
+                          setSavingsError("");
+                          setSavingsSuccess("");
+                        }}
+                        title="Record Savings"
+                        className="p-1.5 text-gray-400 hover:text-green-600 transition-colors"
+                      >
+                        <PiggyBank className="w-4 h-4" />
+                      </button>
                       <button
                         onClick={() => handleSuspend(staff.id, staff.employment_status ?? "active")}
                         disabled={suspending === staff.id}
@@ -378,6 +455,112 @@ export default function StaffListPage() {
               >
                 {provisioningLogin ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
                 {provisioningLogin ? "Creating..." : "Create Login Access"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Record Savings Modal ─── */}
+      {savingsModalStaff && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-navy-900">Record Savings</h3>
+              <button
+                onClick={() => setSavingsModalStaff(null)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              <div className="p-4 bg-gray-50 rounded-xl">
+                <p className="text-sm font-semibold text-navy-900">{savingsModalStaff.first_name} {savingsModalStaff.last_name}</p>
+                <p className="text-xs text-gray-400">{savingsModalStaff.staff_id}</p>
+              </div>
+
+              {savingsError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{savingsError}</div>
+              )}
+              {savingsSuccess && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">{savingsSuccess}</div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Number of Months *</label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5, 6].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setSavingsMonths(m)}
+                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                        savingsMonths === m
+                          ? "bg-navy-900 text-white border-navy-900"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={savingsMonths}
+                    onChange={(e) => setSavingsMonths(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Or enter custom months..."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Amount Per Month (₦) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={savingsAmount || ""}
+                  onChange={(e) => setSavingsAmount(Number(e.target.value))}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="e.g. 7000"
+                />
+                {savingsAmount > 0 && savingsMonths > 0 && (
+                  <p className="mt-2 text-sm font-semibold text-navy-900">
+                    Total: ₦{(savingsAmount * savingsMonths).toLocaleString()}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={savingsNotes}
+                  onChange={(e) => setSavingsNotes(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="e.g. Backdated savings for Q1"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
+              <button
+                onClick={() => setSavingsModalStaff(null)}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRecordSavings}
+                disabled={savingsLoading || savingsAmount <= 0 || savingsMonths < 1}
+                className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PiggyBank className="w-4 h-4" />}
+                Record ₦{(savingsAmount * savingsMonths).toLocaleString()}
               </button>
             </div>
           </div>

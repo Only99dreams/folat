@@ -9,6 +9,7 @@ import {
 import ExportMenu from "./ExportMenu";
 import { supabase } from "../lib/supabase";
 import { fetchBranches } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 interface MemberRecord {
   id: string;
@@ -24,6 +25,7 @@ interface MemberRecord {
 }
 
 export default function CooperativeDataSheetPage() {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [records, setRecords] = useState<MemberRecord[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
@@ -32,10 +34,23 @@ export default function CooperativeDataSheetPage() {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   });
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   useEffect(() => {
     fetchBranches().then(setBranches).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     loadData();
@@ -125,6 +140,8 @@ export default function CooperativeDataSheetPage() {
     { previous: 0, deposits: 0, withdrawals: 0, total: 0 }
   );
 
+  const changePercent = totals.previous === 0 ? null : ((totals.total - totals.previous) / Math.abs(totals.previous)) * 100;
+
   const monthLabel = (() => {
     const [y, m] = selectedMonth.split("-").map(Number);
     return new Date(y, m - 1).toLocaleDateString("en-NG", { month: "long", year: "numeric" });
@@ -175,6 +192,9 @@ export default function CooperativeDataSheetPage() {
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Total Balance</p>
           <p className="text-2xl font-bold text-navy-900 mt-1">₦{totals.total.toLocaleString()}</p>
+          <p className={`text-sm mt-1 ${changePercent === null ? 'text-gray-400' : changePercent >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+            {changePercent === null ? '—' : `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`}
+          </p>
         </div>
       </div>
 
@@ -190,16 +210,18 @@ export default function CooperativeDataSheetPage() {
               className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20"
             />
           </div>
-          <div>
-            <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">Branch</label>
-            <div className="relative">
-              <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white">
-                <option value="">All Branches</option>
-                {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          {!isRestricted && (
+            <div>
+              <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">Branch</label>
+              <div className="relative">
+                <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white">
+                  <option value="">All Branches</option>
+                  {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
             </div>
-          </div>
+          )}
           <div className="flex items-end">
             <p className="text-xs text-gray-400">
               Previous Month + Current Deposits − Withdrawals = Total Balance
@@ -222,38 +244,45 @@ export default function CooperativeDataSheetPage() {
                 <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold text-right">Previous Balance</th>
                 <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold text-right">Deposits</th>
                 <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold text-right">Withdrawals</th>
+                <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold text-right">Return %</th>
                 <th className="px-4 py-3 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold text-right">Total Balance</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-5 py-16 text-center">
+                <tr><td colSpan={10} className="px-5 py-16 text-center">
                   <Loader2 className="w-6 h-6 animate-spin text-gray-400 mx-auto" />
                   <p className="text-sm text-gray-400 mt-2">Loading data sheet…</p>
                 </td></tr>
               ) : records.length === 0 ? (
-                <tr><td colSpan={9} className="px-5 py-16 text-center">
+                <tr><td colSpan={10} className="px-5 py-16 text-center">
                   <p className="text-sm text-gray-400">No cooperative members found.</p>
                 </td></tr>
-              ) : records.map((r, i) => (
-                <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50/50">
-                  <td className="px-4 py-3 text-xs text-gray-400">{i + 1}</td>
-                  <td className="px-4 py-3">
-                    <p className="text-sm font-semibold text-navy-900">{r.last_name}, {r.first_name}</p>
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{r.member_id}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{r.branch_name}</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{r.group_name}</td>
-                  <td className="px-4 py-3 text-right text-sm text-gray-600">₦{r.previous_balance.toLocaleString()}</td>
-                  <td className="px-4 py-3 text-right text-sm font-medium text-green-600">
-                    {r.current_deposits > 0 ? `+₦${r.current_deposits.toLocaleString()}` : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm font-medium text-red-600">
-                    {r.current_withdrawals > 0 ? `-₦${r.current_withdrawals.toLocaleString()}` : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm font-bold text-navy-900">₦{r.total_balance.toLocaleString()}</td>
-                </tr>
-              ))}
+              ) : records.map((r, i) => {
+                const returnPercent = r.previous_balance === 0 ? null : ((r.total_balance - r.previous_balance) / Math.abs(r.previous_balance)) * 100;
+                return (
+                  <tr key={r.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                    <td className="px-4 py-3 text-xs text-gray-400">{i + 1}</td>
+                    <td className="px-4 py-3">
+                      <p className="text-sm font-semibold text-navy-900">{r.last_name}, {r.first_name}</p>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{r.member_id}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{r.branch_name}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{r.group_name}</td>
+                    <td className="px-4 py-3 text-right text-sm text-gray-600">₦{r.previous_balance.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right text-sm font-medium text-green-600">
+                      {r.current_deposits > 0 ? `+₦${r.current_deposits.toLocaleString()}` : "—"}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-medium text-red-600">
+                      {r.current_withdrawals > 0 ? `-₦${r.current_withdrawals.toLocaleString()}` : "—"}
+                    </td>
+                    <td className={`px-4 py-3 text-right text-sm font-medium ${returnPercent === null ? 'text-gray-400' : returnPercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {returnPercent === null ? '—' : `${returnPercent >= 0 ? '+' : ''}${returnPercent.toFixed(2)}%`}
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm font-bold text-navy-900">₦{r.total_balance.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
             </tbody>
             {records.length > 0 && (
               <tfoot>
@@ -262,6 +291,9 @@ export default function CooperativeDataSheetPage() {
                   <td className="px-4 py-3 text-right text-sm font-bold text-gray-600">₦{totals.previous.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-sm font-bold text-green-600">+₦{totals.deposits.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right text-sm font-bold text-red-600">{totals.withdrawals > 0 ? `-₦${totals.withdrawals.toLocaleString()}` : "—"}</td>
+                  <td className={`px-4 py-3 text-right text-sm font-bold ${changePercent === null ? 'text-gray-400' : changePercent >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {changePercent === null ? '—' : `${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`}
+                  </td>
                   <td className="px-4 py-3 text-right text-sm font-bold text-navy-900">₦{totals.total.toLocaleString()}</td>
                 </tr>
               </tfoot>

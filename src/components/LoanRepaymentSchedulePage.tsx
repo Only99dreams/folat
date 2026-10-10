@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Info, Printer, FileDown, CreditCard, Loader2 } from "lucide-react";
-import { fetchLoanApplication, fetchLoanSchedule } from "../lib/db";
+import { Info, Printer, FileDown, Loader2, CreditCard, Save, X } from "lucide-react";
+import { fetchLoanApplication, fetchLoanSchedule, recordLoanRepayment } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 import ExportMenu from "./ExportMenu";
 
 const statusBadge = (status: string) => {
@@ -21,9 +22,22 @@ const statusBadge = (status: string) => {
 export default function LoanRepaymentSchedulePage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { profile, hasPermission } = useAuth();
   const [loan, setLoan] = useState<any>(null);
   const [installments, setInstallments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [nextDueDays, setNextDueDays] = useState<number | null>(null);
+  const [showRepaymentForm, setShowRepaymentForm] = useState(false);
+  const [savingRepayment, setSavingRepayment] = useState(false);
+  const [repaymentError, setRepaymentError] = useState("");
+  const [repaymentSuccess, setRepaymentSuccess] = useState("");
+  const [repaymentForm, setRepaymentForm] = useState({
+    amount: "",
+    paymentMethod: "Cash",
+    paidDate: new Date().toISOString().slice(0, 10),
+    reference: "",
+    notes: "",
+  });
 
   useEffect(() => {
     if (!id) return;
@@ -33,6 +47,23 @@ export default function LoanRepaymentSchedulePage() {
     ]).then(([loanData, scheduleData]) => {
       setLoan(loanData);
       setInstallments(scheduleData);
+      
+      // Find next upcoming payment
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const upcoming = scheduleData
+        .filter((s: any) => s.status !== "paid" && s.due_date)
+        .sort((a: any, b: any) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+      
+      if (upcoming.length > 0) {
+        const dueDate = new Date(upcoming[0].due_date);
+        dueDate.setHours(0, 0, 0, 0);
+        const diffTime = dueDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        setNextDueDays(diffDays);
+      } else {
+        setNextDueDays(null);
+      }
     }).catch(() => {}).finally(() => setLoading(false));
   }, [id]);
 
@@ -42,10 +73,57 @@ export default function LoanRepaymentSchedulePage() {
   const totalLoan = Number(loan.total_repayable ?? loan.amount_requested ?? 0);
   const totalRepaid = installments.reduce((sum, s) => sum + Number(s.amount_paid ?? 0), 0);
   const completionPercent = totalLoan > 0 ? Math.round((totalRepaid / totalLoan) * 100) : 0;
+  const outstandingBalance = Number(loan.outstanding_balance ?? totalLoan);
   const principal = Number(loan.amount_approved ?? loan.amount_requested ?? 0);
   const interestRate = Number(loan.interest_rate ?? 0);
   const months = Number(loan.duration_months ?? 12);
   const monthlyInstallment = Number(loan.monthly_repayment ?? 0);
+  const canRecordRepayment = hasPermission("loans.record_repayment") && Boolean(profile);
+
+  const handleRecordRepayment = async () => {
+    const amount = Number(repaymentForm.amount);
+    if (!id || !profile || !loan.member_id) {
+      setRepaymentError("Loan member information is missing.");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0 || amount > outstandingBalance) {
+      setRepaymentError(`Enter an amount greater than zero and no more than ₦${outstandingBalance.toLocaleString()}.`);
+      return;
+    }
+    if (!repaymentForm.paidDate || !repaymentForm.paymentMethod) {
+      setRepaymentError("Select a payment date and method.");
+      return;
+    }
+
+    setSavingRepayment(true);
+    setRepaymentError("");
+    setRepaymentSuccess("");
+    try {
+      await recordLoanRepayment({
+        loan_id: id,
+        member_id: loan.member_id,
+        amount,
+        payment_method: repaymentForm.paymentMethod,
+        paid_date: repaymentForm.paidDate,
+        reference: repaymentForm.reference,
+        notes: repaymentForm.notes,
+        recorded_by: profile.id,
+      });
+      const [updatedLoan, updatedSchedule] = await Promise.all([
+        fetchLoanApplication(id),
+        fetchLoanSchedule(id),
+      ]);
+      setLoan(updatedLoan);
+      setInstallments(updatedSchedule);
+      setRepaymentForm((current) => ({ ...current, amount: "", reference: "", notes: "" }));
+      setRepaymentSuccess("Repayment recorded successfully.");
+      setShowRepaymentForm(false);
+    } catch (error: any) {
+      setRepaymentError(error.message || "Failed to record repayment.");
+    } finally {
+      setSavingRepayment(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -72,17 +150,72 @@ export default function LoanRepaymentSchedulePage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {canRecordRepayment && outstandingBalance > 0 && loan.status !== "completed" && (
+            <button
+              onClick={() => { setShowRepaymentForm((visible) => !visible); setRepaymentError(""); }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-green-700 text-white rounded-xl text-sm font-semibold hover:bg-green-800 transition-colors"
+            >
+              <CreditCard className="w-4 h-4" />
+              Record Payment
+            </button>
+          )}
           <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
             <Printer className="w-4 h-4" />
             Print Schedule
           </button>
           <ExportMenu data={() => installments.map((inst: any, i: number) => ({ Installment: i + 1, DueDate: inst.due_date, Principal: inst.principal, Interest: inst.interest, Total: inst.total || (inst.principal + inst.interest), Status: inst.status || 'pending' }))} filename={`repayment_schedule_${loan?.loan_id || ''}`} label="Download" />
-          <button className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors">
-            <CreditCard className="w-4 h-4" />
-            Record Payment
-          </button>
         </div>
       </div>
+
+      {repaymentSuccess && <p role="status" className="text-sm text-green-700">{repaymentSuccess}</p>}
+      {showRepaymentForm && canRecordRepayment && (
+        <section className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-base font-bold text-navy-900">Record Loan Payment</h2>
+              <p className="text-sm text-gray-500 mt-1">Outstanding balance: ₦{outstandingBalance.toLocaleString()}</p>
+            </div>
+            <button type="button" onClick={() => setShowRepaymentForm(false)} aria-label="Close payment form" className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <label className="text-sm font-medium text-navy-900">
+              Amount (₦)
+              <input type="number" min="0.01" max={outstandingBalance} step="0.01" value={repaymentForm.amount} onChange={(event) => setRepaymentForm((current) => ({ ...current, amount: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <label className="text-sm font-medium text-navy-900">
+              Payment method
+              <select value={repaymentForm.paymentMethod} onChange={(event) => setRepaymentForm((current) => ({ ...current, paymentMethod: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                <option>Cash</option>
+                <option>Bank Transfer</option>
+                <option>Mobile Money</option>
+                <option>Direct Debit</option>
+                <option>Cheque</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-navy-900">
+              Payment date
+              <input type="date" value={repaymentForm.paidDate} onChange={(event) => setRepaymentForm((current) => ({ ...current, paidDate: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <label className="text-sm font-medium text-navy-900">
+              Reference
+              <input type="text" value={repaymentForm.reference} onChange={(event) => setRepaymentForm((current) => ({ ...current, reference: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <label className="text-sm font-medium text-navy-900 sm:col-span-2">
+              Notes
+              <textarea rows={2} value={repaymentForm.notes} onChange={(event) => setRepaymentForm((current) => ({ ...current, notes: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm resize-y" />
+            </label>
+          </div>
+          {repaymentError && <p role="alert" className="mt-4 text-sm text-red-600">{repaymentError}</p>}
+          <div className="flex justify-end mt-5">
+            <button type="button" disabled={savingRepayment} onClick={handleRecordRepayment} className="inline-flex items-center gap-2 px-4 py-2.5 bg-navy-900 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+              {savingRepayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {savingRepayment ? "Saving..." : "Save Payment"}
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* ─── Loan Summary + Repayment Progress ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -159,7 +292,13 @@ export default function LoanRepaymentSchedulePage() {
             />
           </div>
           <p className="text-xs text-gray-400">
-            Next payment due in 12 days
+            {nextDueDays !== null ? (
+              nextDueDays > 0 
+                ? `Next payment due in ${nextDueDays} day${nextDueDays !== 1 ? 's' : ''}`
+                : nextDueDays === 0 
+                  ? "Next payment is due today"
+                  : `Payment is ${Math.abs(nextDueDays)} day${Math.abs(nextDueDays) !== 1 ? 's' : ''} overdue`
+            ) : "No upcoming payments"}
           </p>
         </div>
       </div>

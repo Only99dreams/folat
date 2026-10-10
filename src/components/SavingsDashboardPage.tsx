@@ -23,8 +23,10 @@ import {
 import { fetchSavingsTransactions, fetchSavingsAccounts } from "../lib/db";
 import ExportMenu from "./ExportMenu";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../auth/useAuth";
 
 export default function SavingsDashboardPage() {
+  const { user } = useAuth();
   const [chartRange, setChartRange] = useState("7d");
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -33,8 +35,22 @@ export default function SavingsDashboardPage() {
   const [topSavers, setTopSavers] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [rangeStats, setRangeStats] = useState({ deposits: 0, withdrawals: 0 });
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   const ranges = ["7d", "30d", "6m", "12m"];
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   // Calculate date range based on selected range
   const getDateRange = (range: string) => {
@@ -67,11 +83,17 @@ export default function SavingsDashboardPage() {
     const months = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
     
     try {
-      const { data: chartTxns } = await supabase
+      let chartTxnsQuery = supabase
         .from("savings_transactions")
         .select("type, amount, created_at")
         .gte("created_at", startDate.toISOString())
         .lte("created_at", endDate.toISOString());
+      
+      if (branchFilterId) {
+        chartTxnsQuery = chartTxnsQuery.eq("branch_id", branchFilterId);
+      }
+      
+      const { data: chartTxns } = await chartTxnsQuery;
 
       const cData: any[] = [];
       
@@ -158,32 +180,63 @@ export default function SavingsDashboardPage() {
       setLoading(true);
       try {
         // Total savings & active savers
-        const { data: accounts } = await supabase.from("savings_accounts").select("balance");
+        let accountsQuery = supabase.from("savings_accounts").select("balance");
+        if (branchFilterId) {
+          const { data: branchMembers } = await supabase
+            .from("members")
+            .select("id")
+            .eq("branch_id", branchFilterId);
+          const memberIds = (branchMembers ?? []).map((m: any) => m.id);
+          if (memberIds.length > 0) {
+            accountsQuery = accountsQuery.in("member_id", memberIds);
+          } else {
+            accountsQuery = accountsQuery.eq("member_id", "00000000-0000-0000-0000-000000000000");
+          }
+        }
+        const { data: accounts } = await accountsQuery;
         const total = (accounts ?? []).reduce((s: number, a: any) => s + Number(a.balance), 0);
 
         // Monthly deposits & withdrawals
         const monthStart = new Date();
         monthStart.setDate(1);
         monthStart.setHours(0, 0, 0, 0);
-        const { data: monthTxns } = await supabase
+        let monthTxnsQuery = supabase
           .from("savings_transactions")
           .select("type, amount")
           .gte("created_at", monthStart.toISOString());
+        if (branchFilterId) {
+          monthTxnsQuery = monthTxnsQuery.eq("branch_id", branchFilterId);
+        }
+        const { data: monthTxns } = await monthTxnsQuery;
         const monthlyDeposits = (monthTxns ?? []).filter((t: any) => t.type === "deposit").reduce((s: number, t: any) => s + Number(t.amount), 0);
         const monthlyWithdrawals = (monthTxns ?? []).filter((t: any) => t.type === "withdrawal").reduce((s: number, t: any) => s + Number(t.amount), 0);
 
         setStats({ totalSavings: total, activeSavers: accounts?.length ?? 0, monthlyDeposits, monthlyWithdrawals });
 
         // Recent transactions
-        const { data: txns } = await fetchSavingsTransactions({ page: 1, pageSize: 6 });
+        const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
+        const { data: txns } = await fetchSavingsTransactions({ page: 1, pageSize: 6, user: userObj });
         setRecentTxns(txns);
 
         // Top savers
-        const { data: top } = await supabase
+        let topQuery = supabase
           .from("savings_accounts")
           .select("balance, member:members(first_name, last_name, member_id)")
           .order("balance", { ascending: false })
           .limit(4);
+        if (branchFilterId) {
+          const { data: branchMembers } = await supabase
+            .from("members")
+            .select("id")
+            .eq("branch_id", branchFilterId);
+          const memberIds = (branchMembers ?? []).map((m: any) => m.id);
+          if (memberIds.length > 0) {
+            topQuery = topQuery.in("member_id", memberIds);
+          } else {
+            topQuery = topQuery.eq("member_id", "00000000-0000-0000-0000-000000000000");
+          }
+        }
+        const { data: top } = await topQuery;
         setTopSavers(top ?? []);
 
         // Load initial chart with 7d
@@ -191,12 +244,12 @@ export default function SavingsDashboardPage() {
       } catch (e) { console.error(e); }
       setLoading(false);
     })();
-  }, []);
+  }, [branchFilterId]);
 
   // Update chart when range changes
   useEffect(() => {
     loadChartData(chartRange);
-  }, [chartRange]);
+  }, [chartRange, branchFilterId]);
 
   return (
     <div className="space-y-6">
@@ -563,9 +616,9 @@ export default function SavingsDashboardPage() {
               ))}
             </div>
 
-            <button className="w-full mt-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+            <Link to="/members" className="w-full mt-5 py-2.5 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors text-center">
               View All Savers
-            </button>
+            </Link>
           </div>
         </div>
       </div>

@@ -41,6 +41,20 @@ export default function BulkDepositUploadPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadResult, setUploadResult] = useState<{ success: number; failed: number } | null>(null);
   const [parseError, setParseError] = useState("");
+  const isRestricted = profile?.role === "branch_manager" || profile?.role === "secretary" || profile?.role === "officer";
+  const [restrictedBranchId, setRestrictedBranchId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isRestricted || !profile?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", profile.branch)
+        .single();
+      if (data?.id) setRestrictedBranchId(data.id);
+    })();
+  }, [isRestricted, profile?.branch]);
 
   const downloadTemplate = () => {
     const csv = "member_id,amount,date\nFOL-2025-0001,5000,2026-03-31\nFOL-2025-0002,10000,2026-03-31\n";
@@ -54,13 +68,14 @@ export default function BulkDepositUploadPage() {
   };
 
   /* Look up a member by exact member_id using a direct DB query */
-  const lookupMember = async (memberId: string): Promise<{ id: string; name: string } | null> => {
+  const lookupMember = async (memberId: string, branchId?: string): Promise<{ id: string; name: string } | null> => {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from("members")
         .select("id, first_name, last_name, member_id")
-        .eq("member_id", memberId)
-        .maybeSingle();
+        .eq("member_id", memberId);
+      if (branchId) query = query.eq("branch_id", branchId);
+      const { data, error } = await query.maybeSingle();
       if (error || !data) return null;
       return { id: data.id, name: `${data.first_name} ${data.last_name}` };
     } catch {
@@ -100,7 +115,7 @@ export default function BulkDepositUploadPage() {
         let status: PreviewRow["status"] = "Valid";
 
         // Exact lookup by member_id
-        const member = await lookupMember(memberId);
+        const member = await lookupMember(memberId, restrictedBranchId || undefined);
         if (member) {
           memberDbId = member.id;
           name = member.name;

@@ -28,20 +28,23 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { fetchGroup, fetchGroupMembers, fetchMembers, addGroupMember, removeGroupMember, updateGroup, fetchSavingsTransactions, fetchLoanApplications, fetchAuditLog } from "../lib/db";
+import { fetchGroup, fetchGroupMembers, fetchMembers, addGroupMember, removeGroupMember, updateGroup, fetchSavingsTransactions, fetchLoanApplications, fetchAuditLog, fetchLoanRepayments } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
-/* ─── Chart Data (placeholder — will be dynamic when backend supports it) ─── */
-const performanceData: { month: string; savings: number; loans: number; repayments: number }[] = [];
+/* ─── Chart Data ─── */
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /* ─── Activity Data ─── */
 const recentActivity: { color: string; title: string; description: string; time: string }[] = [];
 
 export default function GroupDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("Overview");
   const [group, setGroup] = useState<any>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [performanceData, setPerformanceData] = useState<any[]>([]);
   const tabs = ["Overview", "Members", "Savings", "Loans", "Activity"];
 
   /* ── Add Members Modal ── */
@@ -71,26 +74,61 @@ export default function GroupDetailPage() {
       const m = await fetchGroupMembers(id);
       setMembers(m);
 
-      // Fetch savings, loans, and activity for group members
       const memberIds = m.map((gm: any) => gm.member_id).filter(Boolean);
       if (memberIds.length > 0) {
-        const [savingsResults, loansResult, auditRes] = await Promise.all([
-          Promise.all(memberIds.map((mid: string) => fetchSavingsTransactions({ member_id: mid, pageSize: 20 }).catch(() => ({ data: [] })))),
-          fetchLoanApplications({ pageSize: 100 }),
+        const memberIdSet = new Set(memberIds);
+        const [savingsResults, loansResult, auditRes, repaymentsResult] = await Promise.all([
+          Promise.all(memberIds.map((mid: string) => fetchSavingsTransactions({ member_id: mid, pageSize: 100 }).catch(() => ({ data: [] })))),
+          fetchLoanApplications({ pageSize: 100, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
           fetchAuditLog({ page: 1, pageSize: 30 }),
+          Promise.all(memberIds.map((mid: string) => fetchLoanRepayments({ member_id: mid, pageSize: 100 }).catch(() => ({ data: [] })))),
         ]);
+        
         const allSavings = savingsResults.flatMap((r: any) => r.data);
         allSavings.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         setGroupSavingsTxns(allSavings.slice(0, 50));
 
-        const memberIdSet = new Set(memberIds);
         setGroupLoans(loansResult.data.filter((l: any) => memberIdSet.has(l.member_id)));
         setGroupActivity(auditRes.data.filter((a: any) => a.entity_id === id || memberIdSet.has(a.entity_id)));
+
+        const allRepayments = repaymentsResult.flatMap((r: any) => r.data);
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const monthly: Record<string, { savings: number; loans: number; repayments: number }> = {};
+        for (const m of months) monthly[m] = { savings: 0, loans: 0, repayments: 0 };
+
+        for (const t of allSavings) {
+          const d = new Date(t.created_at);
+          if (d.getFullYear() === currentYear) {
+            const label = months[d.getMonth()];
+            if (t.type === "deposit") monthly[label].savings += Number(t.amount || 0);
+            else if (t.type === "withdrawal") monthly[label].savings -= Number(t.amount || 0);
+          }
+        }
+        for (const l of loansResult.data) {
+          if (!memberIdSet.has(l.member_id)) continue;
+          const d = new Date(l.created_at);
+          if (d.getFullYear() === currentYear) {
+            const label = months[d.getMonth()];
+            monthly[label].loans += Number(l.amount_approved ?? l.amount_requested ?? 0);
+          }
+        }
+        for (const r of allRepayments) {
+          const d = new Date(r.created_at);
+          if (d.getFullYear() === currentYear) {
+            const label = months[d.getMonth()];
+            monthly[label].repayments += Number(r.amount || 0);
+          }
+        }
+
+        const currentMonth = now.getMonth();
+        const last6 = months.slice(Math.max(0, currentMonth - 5), currentMonth + 1);
+        setPerformanceData(last6.map(m => ({ month: m, ...monthly[m] })));
       }
     } catch (err) {
       console.error(err);
     }
-  }, [id]);
+  }, [id, user]);
 
   useEffect(() => {
     setLoading(true);
@@ -103,7 +141,8 @@ export default function GroupDetailPage() {
     if (q.trim().length < 2) { setSearchResults([]); return; }
     setSearching(true);
     try {
-      const { data } = await fetchMembers({ search: q });
+      const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
+      const { data } = await fetchMembers({ search: q, user: userObj });
       // Filter out already-added members
       const existingIds = new Set(members.map((gm: any) => gm.member_id));
       setSearchResults(data.filter((m: any) => !existingIds.has(m.id)));

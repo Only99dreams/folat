@@ -10,6 +10,7 @@ import {
   BookOpen,
   CheckCircle2,
   Loader2,
+  PenLine,
 } from "lucide-react";
 import {
   AreaChart,
@@ -20,7 +21,9 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { fetchFinanceTransactions, fetchFundRequests } from "../lib/db";
+import { fetchFinanceTransactions, fetchFundRequests, getTotalAvailableFunds, fetchLoanApplications, fetchDashboardStats } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import ExportMenu from "./ExportMenu";
 
 /* ─── Quick Actions ─── */
@@ -54,6 +57,20 @@ const quickActions = [
     to: "/finance/fund-requests",
   },
   {
+    icon: DollarSign,
+    iconBg: "bg-navy-900",
+    label: "Available Funds",
+    desc: "Manage funds for loans",
+    to: "/finance/available-funds",
+  },
+  {
+    icon: CheckCircle2,
+    iconBg: "bg-green-600",
+    label: "Review Loans",
+    desc: "Approve or reject pending",
+    to: "/loans",
+  },
+  {
     icon: BarChart3,
     iconBg: "bg-navy-900",
     label: "Generate Reports",
@@ -78,47 +95,101 @@ const typeBadge = (type: string) => {
 };
 
 export default function FinanceDashboardPage() {
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<any[]>([]);
+  const isFinanceUser = user && ["finance_officer", "super_admin", "auditor"].includes(user.role);
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
   const [pendingRequests, setPendingRequests] = useState(0);
+  const [pendingLoanApprovals, setPendingLoanApprovals] = useState(0);
+  const [approvedLoanCount, setApprovedLoanCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [chartData, setChartData] = useState<any[]>([]);
+  const [availableFunds, setAvailableFunds] = useState(0);
+  const [dashboardStats, setDashboardStats] = useState<{
+    totalMembers: number;
+    activeLoans: number;
+    totalSavings: number;
+    totalBranches: number;
+    totalStaff: number;
+  } | null>(null);
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const [incRes, expRes, txnRes, frRes] = await Promise.all([
-          fetchFinanceTransactions({ type: "income", pageSize: 1000 }),
-          fetchFinanceTransactions({ type: "expense", pageSize: 1000 }),
-          fetchFinanceTransactions({ pageSize: 5 }),
-          fetchFundRequests({ status: "pending" }),
+        const isFinanceUser = user && ["finance_officer", "super_admin", "auditor"].includes(user.role);
+        const incomePageSize = isFinanceUser ? 10000 : 1000;
+        const expensePageSize = isFinanceUser ? 10000 : 1000;
+        const recentPageSize = isFinanceUser ? 20 : 5;
+
+        const financeFilters = branchFilterId ? { branch_id: branchFilterId } : {};
+
+        const [incRes, expRes, txnRes, frRes, fundsRes, pendingLoansRes, approvedLoansRes, statsRes] = await Promise.all([
+          fetchFinanceTransactions({ type: "income", pageSize: incomePageSize, ...financeFilters }),
+          fetchFinanceTransactions({ type: "expense", pageSize: expensePageSize, ...financeFilters }),
+          fetchFinanceTransactions({ pageSize: recentPageSize, ...financeFilters }),
+          fetchFundRequests({ status: "pending", ...financeFilters }),
+          getTotalAvailableFunds(),
+          fetchLoanApplications({ status: "pending", pageSize: 1, branch_id: branchFilterId || undefined, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
+          fetchLoanApplications({ status: "approved", pageSize: 1, branch_id: branchFilterId || undefined, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
+          fetchDashboardStats(undefined, user ? { id: user.id, role: user.role, branch: user.branch } : undefined),
         ]);
+
         const incTotal = incRes.data.reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0);
         const expTotal = expRes.data.reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0);
         setTotalIncome(incTotal);
         setTotalExpenses(expTotal);
+        setAvailableFunds(Number(fundsRes) || 0);
+
+        // If finance user, show a larger recent list; otherwise show default recent set
         setTransactions(txnRes.data);
         setPendingRequests(frRes.count);
+        setPendingLoanApprovals(pendingLoansRes.count);
+        setApprovedLoanCount(approvedLoansRes.count);
+        setDashboardStats(statsRes);
 
         // Build chart data by grouping income/expense by month
-        const months: Record<string, { income: number; expenses: number }> = {};
+        const monthOrder: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+        const months: Record<string, { income: number; expenses: number; sortKey: string }> = {};
         for (const t of incRes.data) {
-          const m = new Date(t.date).toLocaleString("default", { month: "short" });
-          if (!months[m]) months[m] = { income: 0, expenses: 0 };
-          months[m].income += Number(t.amount ?? 0);
+          const d = new Date(t.date);
+          const m = d.toLocaleString("default", { month: "short" });
+          const y = d.getFullYear();
+          const key = `${y}-${m}`;
+          if (!months[key]) months[key] = { income: 0, expenses: 0, sortKey: `${y}-${String(monthOrder[m] ?? 0).padStart(2, "0")}` };
+          months[key].income += Number(t.amount ?? 0);
         }
         for (const t of expRes.data) {
-          const m = new Date(t.date).toLocaleString("default", { month: "short" });
-          if (!months[m]) months[m] = { income: 0, expenses: 0 };
-          months[m].expenses += Number(t.amount ?? 0);
+          const d = new Date(t.date);
+          const m = d.toLocaleString("default", { month: "short" });
+          const y = d.getFullYear();
+          const key = `${y}-${m}`;
+          if (!months[key]) months[key] = { income: 0, expenses: 0, sortKey: `${y}-${String(monthOrder[m] ?? 0).padStart(2, "0")}` };
+          months[key].expenses += Number(t.amount ?? 0);
         }
-        setChartData(Object.entries(months).map(([month, v]) => ({ month, income: v.income, expenses: v.expenses, profit: v.income - v.expenses })));
-      } catch {}
+        const sortedEntries = Object.entries(months).sort((a, b) => a[1].sortKey.localeCompare(b[1].sortKey));
+        setChartData(sortedEntries.map(([key, v]) => ({ month: key.split("-")[1], income: v.income, expenses: v.expenses, profit: v.income - v.expenses })));
+      } catch (e) {
+        console.error(e);
+      }
       setLoading(false);
     })();
-  }, []);
+  }, [user, branchFilterId]);
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
@@ -131,6 +202,9 @@ export default function FinanceDashboardPage() {
             Monitor income, expenses, and financial performance across all
             branches.
           </p>
+          {isFinanceUser ? (
+            <p className="text-xs text-green-600 font-semibold mt-1">Showing organization-wide transactions</p>
+          ) : null}
         </div>
         <div className="flex items-center gap-3">
           <Link to="/finance/add-income" className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
@@ -146,7 +220,7 @@ export default function FinanceDashboardPage() {
       </div>
 
       {/* ─── Stat Cards ─── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         {/* Total Income */}
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-xs text-gray-400 font-medium mb-1">
@@ -169,24 +243,69 @@ export default function FinanceDashboardPage() {
           <p className="text-2xl font-bold text-green-600">₦{(totalIncome - totalExpenses).toLocaleString()}</p>
         </div>
 
-        {/* Total Cash Balance */}
+        {/* Available Funds */}
         <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 font-medium mb-1">
-            Total Cash Balance
+          <p className="text-xs text-gray-400 font-medium mb-1">Available Funds</p>
+          <p className="text-2xl font-bold text-navy-900">₦{availableFunds.toLocaleString()}</p>
+          <p className="text-xs text-gray-400 mt-1">For loan disbursement</p>
+        </div>
+
+        {/* Pending Loan Approvals */}
+        <Link to="/loans" className="bg-white rounded-xl border border-gray-100 p-5 hover:border-navy-900/30 transition-colors">
+          <p className="text-xs text-gray-400 font-medium mb-1">Pending Loans</p>
+          <p className="text-2xl font-bold text-navy-900">{pendingLoanApprovals}</p>
+          <p className="text-xs text-amber-500 font-medium mt-1 flex items-center gap-1">
+            <span>↗</span> awaiting review
           </p>
-          <p className="text-2xl font-bold text-navy-900">₦{(totalIncome - totalExpenses).toLocaleString()}</p>
+        </Link>
+
+        {/* Approved Loans */}
+        <Link to="/loans" className="bg-white rounded-xl border border-gray-100 p-5 hover:border-navy-900/30 transition-colors">
+          <p className="text-xs text-gray-400 font-medium mb-1">Approved Loans</p>
+          <p className="text-2xl font-bold text-navy-900">{approvedLoanCount}</p>
+          <p className="text-xs text-green-600 font-medium mt-1 flex items-center gap-1">
+            <span>✓</span> ready for disbursement
+          </p>
+        </Link>
+
+        {/* Total Members */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <p className="text-xs text-gray-400 font-medium mb-1">Total Members</p>
+          <p className="text-2xl font-bold text-navy-900">{dashboardStats?.totalMembers.toLocaleString() ?? "—"}</p>
+        </div>
+
+        {/* Total Branches */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <p className="text-xs text-gray-400 font-medium mb-1">Branches</p>
+          <p className="text-2xl font-bold text-navy-900">{dashboardStats?.totalBranches.toLocaleString() ?? "—"}</p>
+        </div>
+
+        {/* Total Savings */}
+        <Link to="/savings" className="bg-white rounded-xl border border-gray-100 p-5 hover:border-navy-900/30 transition-colors">
+          <p className="text-xs text-gray-400 font-medium mb-1">Total Savings</p>
+          <p className="text-2xl font-bold text-green-600">₦{dashboardStats?.totalSavings.toLocaleString() ?? "—"}</p>
+        </Link>
+
+        {/* Active Loans */}
+        <Link to="/loans/active" className="bg-white rounded-xl border border-gray-100 p-5 hover:border-navy-900/30 transition-colors">
+          <p className="text-xs text-gray-400 font-medium mb-1">Active Loans</p>
+          <p className="text-2xl font-bold text-navy-900">{dashboardStats?.activeLoans.toLocaleString() ?? "—"}</p>
+        </Link>
+
+        {/* Total Staff */}
+        <div className="bg-white rounded-xl border border-gray-100 p-5">
+          <p className="text-xs text-gray-400 font-medium mb-1">Total Staff</p>
+          <p className="text-2xl font-bold text-navy-900">{dashboardStats?.totalStaff.toLocaleString() ?? "—"}</p>
         </div>
 
         {/* Pending Requests */}
-        <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <p className="text-xs text-gray-400 font-medium mb-1">
-            Pending Requests
-          </p>
+        <Link to="/finance/fund-requests" className="bg-white rounded-xl border border-gray-100 p-5 hover:border-navy-900/30 transition-colors">
+          <p className="text-xs text-gray-400 font-medium mb-1">Pending Requests</p>
           <p className="text-2xl font-bold text-navy-900">{pendingRequests}</p>
           <p className="text-xs text-red-500 font-medium mt-1 flex items-center gap-1">
             <span>⚡</span> Action Required
           </p>
-        </div>
+        </Link>
       </div>
 
       {/* ─── Chart + Quick Actions ─── */}
@@ -214,6 +333,11 @@ export default function FinanceDashboardPage() {
           </div>
 
           <ResponsiveContainer width="100%" height={260}>
+            {chartData.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                {loading ? "Loading chart data..." : "No financial data available yet. Record income or expenses to see the performance chart."}
+              </div>
+            ) : (
             <AreaChart data={chartData}>
               <defs>
                 <linearGradient id="fillIncome" x1="0" y1="0" x2="0" y2="1">
@@ -240,7 +364,7 @@ export default function FinanceDashboardPage() {
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 12, fill: "#94a3b8" }}
-                hide
+                tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}
               />
               <Tooltip
                 contentStyle={{
@@ -271,6 +395,7 @@ export default function FinanceDashboardPage() {
                 fill="url(#fillProfit)"
               />
             </AreaChart>
+            )}
           </ResponsiveContainer>
         </div>
 

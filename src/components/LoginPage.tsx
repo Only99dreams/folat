@@ -15,6 +15,7 @@ import {
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import heroImg from "../assets/hero.png";
 import { useAuth } from "../auth/AuthContext";
+import { getEmailValidationError } from "../lib/emailValidation";
 
 export default function LoginPage() {
   const { login, isAuthenticated, loading: authLoading } = useAuth();
@@ -27,14 +28,29 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   // Redirect if already logged in
-  if (authLoading) return null;
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-navy-900 border-t-transparent" />
+      </div>
+    );
+  }
   if (isAuthenticated) return <Navigate to="/dashboard" replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    
+    // Email validation - only FOLAT emails allowed (with superadmin exception)
+    const emailInput = email.trim();
+    const validationError = getEmailValidationError(emailInput);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setSubmitting(true);
-    const result = await login(email, password);
+    const result = await login(emailInput, password);
     setSubmitting(false);
     if (!result.success) {
       setError(result.error ?? "Invalid email or password.");

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Search,
   ChevronDown,
@@ -10,9 +10,11 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  CreditCard,
 } from "lucide-react";
-import { fetchLoanApplications, fetchBranches, updateLoanApplication } from "../lib/db";
+import { fetchLoanApplications, fetchBranches, updateLoanApplication, disburseLoan } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import { confirmToast, toastSuccess, toastError } from "../lib/toast";
 import ExportMenu from "./ExportMenu";
 
@@ -82,12 +84,8 @@ const statusBadge = (status: string) => {
 const guarantorBadge = (loan: LoanRow) => {
   const hasG1 = Boolean(loan.guarantor1_name?.trim());
   const hasG2 = Boolean(loan.guarantor2_name?.trim());
-  const states = [
-    hasG1 ? loan.guarantor1_approval_status : null,
-    hasG2 ? loan.guarantor2_approval_status : null,
-  ].filter(Boolean) as string[];
 
-  if (states.length === 0) {
+  if (!hasG1 && !hasG2) {
     return (
       <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-gray-50 text-gray-500 border border-gray-200">
         Not Set
@@ -95,7 +93,10 @@ const guarantorBadge = (loan: LoanRow) => {
     );
   }
 
-  if (states.includes("rejected")) {
+  const g1Status = hasG1 ? loan.guarantor1_approval_status : null;
+  const g2Status = hasG2 ? loan.guarantor2_approval_status : null;
+
+  if (g1Status === "rejected" || g2Status === "rejected") {
     return (
       <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-red-50 text-red-600 border border-red-200">
         Rejected
@@ -103,18 +104,20 @@ const guarantorBadge = (loan: LoanRow) => {
     );
   }
 
-  if (states.includes("pending")) {
+  const g1Done = !hasG1 || g1Status === "approved";
+  const g2Done = !hasG2 || g2Status === "approved";
+  if (g1Done && g2Done) {
     return (
-      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200">
-        Pending
+      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-green-50 text-green-600 border border-green-200">
+        Approved
       </span>
     );
   }
 
-  if (states.every((s) => s === "approved")) {
+  if (g1Status === "pending" || g2Status === "pending") {
     return (
-      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-green-50 text-green-600 border border-green-200">
-        Approved
+      <span className="inline-flex px-2.5 py-1 rounded text-xs font-medium bg-amber-50 text-amber-600 border border-amber-200">
+        Pending
       </span>
     );
   }
@@ -128,7 +131,10 @@ const guarantorBadge = (loan: LoanRow) => {
 
 export default function LoanApplicationsPage() {
   const { user } = useAuth();
-  const canApprove = user?.role === "super_admin" || user?.role === "branch_manager";
+  const navigate = useNavigate();
+  const isStaff = user?.role === "staff_member";
+  const canApprove = user?.role === "super_admin" || user?.role === "finance_officer";
+  const canDisburse = user?.role === "super_admin" || user?.role === "finance_officer";
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
@@ -141,6 +147,9 @@ export default function LoanApplicationsPage() {
   const [totalResults, setTotalResults] = useState(0);
   const [branches, setBranches] = useState<BranchRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [disbursingId, setDisbursingId] = useState<string | null>(null);
+  const [disbursementDate, setDisbursementDate] = useState("");
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   const perPage = 10;
   const totalPages = Math.ceil(totalResults / perPage) || 1;
@@ -148,6 +157,18 @@ export default function LoanApplicationsPage() {
   useEffect(() => {
     fetchBranches().then((data) => setBranches((data ?? []) as BranchRow[])).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   const loadLoans = useCallback(async () => {
     setLoading(true);
@@ -158,10 +179,12 @@ export default function LoanApplicationsPage() {
         status?: string;
         branch_id?: string;
         search?: string;
+        user?: { id: string; role: string; branch: string };
       } = { page: currentPage, per_page: perPage };
       if (statusFilter) filters.status = statusFilter;
       if (branchFilter) filters.branch_id = branchFilter;
       if (search.trim()) filters.search = search.trim();
+      if (user) filters.user = { id: user.id, role: user.role, branch: user.branch };
       const { data, count } = await fetchLoanApplications(filters);
       setLoans((data ?? []) as LoanRow[]);
       setTotalResults(count ?? 0);
@@ -169,7 +192,7 @@ export default function LoanApplicationsPage() {
       console.error(err);
     }
     setLoading(false);
-  }, [branchFilter, currentPage, perPage, search, statusFilter]);
+  }, [branchFilter, currentPage, perPage, search, statusFilter, user]);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -232,6 +255,26 @@ export default function LoanApplicationsPage() {
     }
   };
 
+  const handleDisburse = async (loanId: string) => {
+    if (!disbursementDate) {
+      toastError("Please select a disbursement date.");
+      return;
+    }
+    if (!user?.id) {
+      toastError("User not authenticated.");
+      return;
+    }
+    try {
+      await disburseLoan(loanId, disbursementDate, user.id);
+      toastSuccess("Loan disbursed successfully.");
+      setDisbursingId(null);
+      setDisbursementDate("");
+      void loadLoans();
+    } catch (err) {
+      toastError((err as Error)?.message || "Failed to disburse loan.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* ─── Header ─── */}
@@ -246,15 +289,15 @@ export default function LoanApplicationsPage() {
         </div>
         <div className="flex items-center gap-3">
           <ExportMenu data={() => loans.map((l) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount_requested, Purpose: l.purpose || '', Status: l.status, Applied: l.created_at }))} filename="loan_applications" label="Export" />
-          <Link to="/loans/new" className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
+          <Link to={isStaff ? "/loans/cooperative-request" : "/loans/new"} className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
             <Plus className="w-4 h-4" />
-            New Application
+            {isStaff ? "Cooperative Loan" : "New Application"}
           </Link>
         </div>
       </div>
 
       {/* ─── Search & Filters ─── */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
+      {!isStaff && <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -289,22 +332,24 @@ export default function LoanApplicationsPage() {
           </div>
 
           {/* Branch */}
-          <div className="relative">
-            <span className="text-xs text-gray-500 font-medium mr-1">
-              BRANCH:
-            </span>
-            <select
-              value={branchFilter}
-              onChange={(e) => setBranchFilter(e.target.value)}
-              className="appearance-none pl-1 pr-6 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
-            >
-              <option value="">All Branches</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-          </div>
+          {!isRestricted && (
+            <div className="relative">
+              <span className="text-xs text-gray-500 font-medium mr-1">
+                BRANCH:
+              </span>
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="appearance-none pl-1 pr-6 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
+              >
+                <option value="">All Branches</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+            </div>
+          )}
 
           {/* Amount */}
           <div className="relative">
@@ -353,7 +398,7 @@ export default function LoanApplicationsPage() {
             Clear All Filters
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* ─── Table ─── */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -392,6 +437,29 @@ export default function LoanApplicationsPage() {
             )}
           </div>
         </div>
+
+        {/* Disbursement Form */}
+        {disbursingId && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex flex-wrap items-center gap-3">
+            <p className="text-sm font-semibold text-navy-900">Disburse Loan</p>
+            <input
+              type="date"
+              value={disbursementDate}
+              onChange={(e) => setDisbursementDate(e.target.value)}
+              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20"
+            />
+            <button
+              onClick={() => handleDisburse(disbursingId)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors">
+              Confirm Disbursement
+            </button>
+            <button
+              onClick={() => { setDisbursingId(null); setDisbursementDate(""); }}
+              className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors">
+              Cancel
+            </button>
+          </div>
+        )}
 
         {/* Table */}
         <div className="overflow-x-auto">
@@ -436,9 +504,10 @@ export default function LoanApplicationsPage() {
               ) : loans.map((loan, i) => (
                 <tr
                   key={loan.id}
-                  className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors"
+                  className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/loans/${loan.id}`)}
                 >
-                  <td className="px-6 py-5">
+                  <td className="px-6 py-5" onClick={(e) => e.stopPropagation()}>
                     <input
                       type="checkbox"
                       checked={selectedRows.has(i)}
@@ -447,15 +516,17 @@ export default function LoanApplicationsPage() {
                     />
                   </td>
                   <td className="px-4 py-5">
-                    <p className="text-sm font-semibold text-navy-900">{loan.loan_id}</p>
+                    <Link to={`/loans/${loan.id}`} onClick={(e) => e.stopPropagation()} className="text-sm font-semibold text-navy-900 hover:text-blue-600 hover:underline transition-colors">
+                      {loan.loan_id}
+                    </Link>
                   </td>
-                  <td className="px-4 py-5">
+                  <td className="px-4 py-5" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-3">
                       <div className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold ${avatarColors[i % avatarColors.length]}`}>
                         {loan.member?.first_name?.[0]}{loan.member?.last_name?.[0]}
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-navy-900">{loan.member?.first_name} {loan.member?.last_name}</p>
+                        <Link to={`/loans/${loan.id}`} className="text-sm font-semibold text-navy-900 hover:text-blue-600 hover:underline transition-colors">{loan.member?.first_name} {loan.member?.last_name}</Link>
                         <p className="text-xs text-gray-400">{loan.member?.member_id}</p>
                       </div>
                     </div>
@@ -478,28 +549,36 @@ export default function LoanApplicationsPage() {
                   <td className="px-4 py-5">
                     <p className="text-sm text-gray-600">{new Date(loan.created_at).toLocaleDateString()}</p>
                   </td>
-                  <td className="px-4 py-5">
+                  <td className="px-4 py-5" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center justify-center gap-1">
                       <Link title="View" to={`/loans/${loan.id}`}
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors">
                         <Eye className="w-4 h-4" />
                       </Link>
-                      {canApprove && loan.status === "pending" && (
-                        <>
-                          <button
-                            title="Approve"
-                            onClick={() => handleApprove([loan.id])}
-                            className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
-                            <CheckCircle2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            title="Reject"
-                            onClick={() => handleReject([loan.id])}
-                            className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                            <XCircle className="w-4 h-4" />
-                          </button>
-                        </>
-                      )}
+                       {canApprove && (loan.status === "pending" || loan.status === "under_review") && (
+                         <>
+                           <button
+                             title="Approve"
+                             onClick={() => handleApprove([loan.id])}
+                             className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
+                             <CheckCircle2 className="w-4 h-4" />
+                           </button>
+                           <button
+                             title="Reject"
+                             onClick={() => handleReject([loan.id])}
+                             className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                             <XCircle className="w-4 h-4" />
+                           </button>
+                         </>
+                       )}
+                       {canDisburse && loan.status === "approved" && (
+                         <button
+                           title="Disburse"
+                           onClick={() => { setDisbursingId(loan.id); setDisbursementDate(new Date().toISOString().split("T")[0]); }}
+                           className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                           <CreditCard className="w-4 h-4" />
+                         </button>
+                       )}
                     </div>
                   </td>
                 </tr>

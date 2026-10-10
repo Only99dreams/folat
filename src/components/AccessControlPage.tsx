@@ -113,6 +113,7 @@ const PERMISSION_MODULES: { module: string; permissions: { key: Permission; labe
     permissions: [
       { key: "settings.general", label: "General Settings" },
       { key: "settings.notifications", label: "Notification Settings" },
+      { key: "settings.loan_rules", label: "Loan Rules" },
     ],
   },
 ];

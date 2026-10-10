@@ -15,9 +15,12 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchGroups, fetchBranches } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import ExportMenu from "./ExportMenu";
 
 export default function GroupsPage() {
+  const { user } = useAuth();
   const [branchFilter, setBranchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [leaderFilter, setLeaderFilter] = useState("");
@@ -27,11 +30,24 @@ export default function GroupsPage() {
   const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalGroups, setTotalGroups] = useState(0);
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   const perPage = 20;
   const totalPages = Math.max(1, Math.ceil(totalGroups / perPage));
 
   useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     (async () => {
@@ -40,6 +56,7 @@ export default function GroupsPage() {
         const { data, count } = await fetchGroups({
           branch_id: branchFilter || undefined,
           status: statusFilter || undefined,
+          created_by: isRestricted && user?.id ? user.id : undefined,
           page: currentPage,
           pageSize: perPage,
         });
@@ -48,7 +65,7 @@ export default function GroupsPage() {
       } catch (e) { console.error(e); }
       setLoading(false);
     })();
-  }, [currentPage, branchFilter, statusFilter]);
+  }, [currentPage, branchFilter, statusFilter, isRestricted, user?.id]);
 
   return (
     <div className="space-y-6">
@@ -112,24 +129,26 @@ export default function GroupsPage() {
       <div className="bg-white rounded-xl border border-gray-100 p-5">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
           {/* Branch */}
-          <div>
-            <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">
-              Branch
-            </label>
-            <div className="relative">
-              <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="">All Branches</option>
-                {branches.map((b: any) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          {!isRestricted && (
+            <div>
+              <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">
+                Branch
+              </label>
+              <div className="relative">
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+                >
+                  <option value="">All Branches</option>
+                  {branches.map((b: any) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Status */}
           <div>

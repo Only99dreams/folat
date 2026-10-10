@@ -11,14 +11,20 @@ export default function ProtectedRoute({ requiredPermissions, children }: Protec
   const { user, isAuthenticated, loading, hasAnyPermission } = useAuth();
   const location = useLocation();
 
-  if (loading) return null; // still resolving session
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-navy-900 border-t-transparent" />
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/" replace />;
   }
 
-  // Unassigned users can only access /dashboard
-  if (user?.role === "unassigned" && location.pathname !== "/dashboard") {
+  // Unassigned users can only access /dashboard and /code-of-conduct
+  if (user?.role === "unassigned" && location.pathname !== "/dashboard" && location.pathname !== "/code-of-conduct") {
     return <Navigate to="/dashboard" replace />;
   }
 

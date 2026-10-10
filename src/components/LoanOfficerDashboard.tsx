@@ -26,10 +26,10 @@ export default function LoanOfficerDashboard() {
     (async () => {
       try {
         const [recent, pending, overdue, approved] = await Promise.all([
-          fetchLoanApplications({ page: 1, pageSize: 5 }),
-          fetchLoanApplications({ status: "pending", page: 1, pageSize: 1 }),
-          fetchLoanApplications({ status: "overdue", page: 1, pageSize: 5 }),
-          fetchLoanApplications({ status: "approved", page: 1, pageSize: 1 }),
+          fetchLoanApplications({ page: 1, pageSize: 5, user: { id: user.id, role: user.role, branch: user.branch } }),
+          fetchLoanApplications({ status: "pending", page: 1, pageSize: 1, user: { id: user.id, role: user.role, branch: user.branch } }),
+          fetchLoanApplications({ status: "overdue", page: 1, pageSize: 5, user: { id: user.id, role: user.role, branch: user.branch } }),
+          fetchLoanApplications({ status: "approved", page: 1, pageSize: 1, user: { id: user.id, role: user.role, branch: user.branch } }),
         ]);
         setRecentApplications(recent.data);
         setPendingCount(pending.count);
@@ -146,7 +146,7 @@ export default function LoanOfficerDashboard() {
                     <p className="text-sm font-medium text-navy-900">{memberName}</p>
                     <p className="text-xs font-bold text-red-600">Overdue</p>
                   </div>
-                  <p className="text-xs text-gray-500">{o.loan_id || o.id?.slice(0, 8)} — ₦ {Number(o.amount_requested).toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">{o.loan_id || o.id?.slice(0, 8)} — ₦ {Number(o.outstanding_balance ?? o.amount_approved ?? o.amount_requested).toLocaleString()}</p>
                 </div>
                 );
               })}
@@ -160,7 +160,6 @@ export default function LoanOfficerDashboard() {
               {[
                 { task: "View all loan applications", to: "/loans" },
                 { task: "Create new loan application", to: "/loans/new" },
-                { task: "Record loan repayment", to: "/loans/record-repayment" },
                 { task: "Check overdue loans", to: "/loans/overdue" },
               ].map((t, i) => (
                 <Link key={i} to={t.to} className="flex items-start gap-3 p-3 rounded-xl hover:bg-gray-50">

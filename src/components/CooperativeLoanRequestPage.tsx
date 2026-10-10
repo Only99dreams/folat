@@ -27,8 +27,11 @@ import {
   fetchBranchSecretaryContact,
   sendMessage,
   createNotification,
+  fetchStaffByProfileId,
+  updateStaffSalary,
 } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import LoanRulesGate from "./LoanRulesGate";
 
 type MemberSearchResult = {
@@ -38,6 +41,7 @@ type MemberSearchResult = {
   first_name: string;
   last_name: string;
   branch_id?: string | null;
+  staff_id?: string | null;
 };
 
 type BranchOption = {
@@ -78,13 +82,15 @@ export default function CooperativeLoanRequestPage() {
   const [loanType, setLoanType] = useState("personal");
   const [loanCycle, setLoanCycle] = useState("");
   const [purposeScheme, setPurposeScheme] = useState("");
+  const [customPurpose, setCustomPurpose] = useState("");
   const interestRate = 10; // locked at 10% flat for cooperative loans
   const [durationMonths, setDurationMonths] = useState("10");
 
   // Disbursement
-  const [disbursementDate, setDisbursementDate] = useState("");
   const [principalAmount, setPrincipalAmount] = useState("0.00");
-  const [firstInstallmentDate, setFirstInstallmentDate] = useState("");
+  const [monthlySalaryDeductionType, setMonthlySalaryDeductionType] = useState<"calculated" | "custom">("calculated");
+  const [customMonthlyDeduction, setCustomMonthlyDeduction] = useState("");
+  const [selectedSavingsAmount, setSelectedSavingsAmount] = useState("");
 
   // Guarantors
   const [guarantor1Name, setGuarantor1Name] = useState("");
@@ -218,7 +224,7 @@ export default function CooperativeLoanRequestPage() {
     })();
   }, [isStaffMember, profile?.email, selectMember]);
 
-  // Calculations — 10% flat interest, 6–12 month duration
+  // Calculations — 10% flat interest, 3–12 month duration
   const principal = parseFloat(principalAmount.replace(/,/g, "")) || 0;
   const months = parseInt(durationMonths) || 10;
   const maxLoanAmount = savingsRaw * 2;
@@ -292,6 +298,14 @@ export default function CooperativeLoanRequestPage() {
       setError("Please capture the borrower's digital signature");
       return;
     }
+    if (purposeScheme === "Other" && !customPurpose.trim()) {
+      setError("Please specify the custom purpose.");
+      return;
+    }
+    if (selectedMember && (!selectedSavingsAmount || Number(selectedSavingsAmount) < 5000)) {
+      setError("Please enter a valid monthly savings amount (minimum ₦5,000 when taking a loan).");
+      return;
+    }
     setError("");
     setSubmitting(true);
     try {
@@ -323,10 +337,8 @@ export default function CooperativeLoanRequestPage() {
         interest_rate: interestRate,
         duration_months: months,
         service_charge: 0,
-        purpose: purposeScheme,
+        purpose: purposeScheme === "Other" ? customPurpose : purposeScheme,
         credit_officer_id: profile?.id ?? null,
-        first_installment_date: firstInstallmentDate || null,
-        disbursement_date: disbursementDate || null,
         status: "pending",
         loan_cycle: parseInt(loanCycle) || 1,
         co_recommendation: coRecommendation,
@@ -344,6 +356,7 @@ export default function CooperativeLoanRequestPage() {
         guarantor2_phone: guarantor2Phone,
         guarantor2_status: guarantor2Name ? "pending" : "",
         guarantor2_approval_status: guarantor2Name ? "pending" : "",
+        monthly_repayment_amount: monthlySalaryDeductionType === "calculated" ? monthlyRepayment : (parseFloat(customMonthlyDeduction) || monthlyRepayment),
       });
 
       if (guarantor1Staff.profile_id) {
@@ -357,6 +370,25 @@ export default function CooperativeLoanRequestPage() {
           });
         } catch {
           // Notification is non-blocking.
+        }
+      }
+
+      if (selectedMember && selectedSavingsAmount && Number(selectedSavingsAmount) >= 5000) {
+        try {
+          let staffRecord = null;
+          if (isStaffMember) {
+            staffRecord = await fetchStaffByProfileId(profile?.id || "");
+          } else if (selectedMember.staff_id) {
+            const { data } = await supabase.from("staff").select("id").eq("id", selectedMember.staff_id).maybeSingle();
+            staffRecord = data;
+          }
+          if (staffRecord) {
+            await updateStaffSalary(staffRecord.id, {
+              cooperative_savings_amount: Number(selectedSavingsAmount),
+            });
+          }
+        } catch {
+          // Non-blocking: staff savings amount update failed but loan was created
         }
       }
 
@@ -394,7 +426,7 @@ export default function CooperativeLoanRequestPage() {
             <li>Member must have saved for at least <strong>6 months</strong></li>
             <li>Maximum loan = <strong>2× savings balance</strong></li>
             <li>Interest rate is fixed at <strong>10% flat</strong></li>
-            <li>Repayment term: <strong>6 – 12 months</strong> (member's choice)</li>
+            <li>Repayment term: <strong>3 – 12 months</strong> (member's choice)</li>
           </ul>
         </div>
       </div>
@@ -619,17 +651,21 @@ export default function CooperativeLoanRequestPage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
+              <div className="relative">
                 <label className="block text-sm font-medium text-navy-900 mb-1.5">
                   Loan Cycle
                 </label>
-                <input
-                  type="text"
-                  placeholder="e.g. 1"
+                <select
                   value={loanCycle}
                   onChange={(e) => setLoanCycle(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-                />
+                  className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+                >
+                  <option value="">Select Cycle</option>
+                  {[1,2,3,4,5].map((c) => (
+                    <option key={c} value={String(c)}>Cycle {c}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
               </div>
               <div className="relative">
                 <label className="block text-sm font-medium text-navy-900 mb-1.5">
@@ -640,7 +676,7 @@ export default function CooperativeLoanRequestPage() {
                   onChange={(e) => setDurationMonths(e.target.value)}
                   className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
                 >
-                  {[6,7,8,9,10,11,12].map((m) => (
+                  {[3,4,5,6,7,8,9,10,11,12].map((m) => (
                     <option key={m} value={String(m)}>{m} months</option>
                   ))}
                 </select>
@@ -662,18 +698,38 @@ export default function CooperativeLoanRequestPage() {
               <label className="block text-sm font-medium text-navy-900 mb-1.5">
                 Purpose / Scheme
               </label>
-              <textarea
-                placeholder="State the purpose of the loan..."
-                value={purposeScheme}
-                onChange={(e) => setPurposeScheme(e.target.value)}
-                rows={3}
-                className="w-full px-4 py-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 resize-none"
-              />
+              <div className="relative">
+                <select
+                  value={purposeScheme}
+                  onChange={(e) => setPurposeScheme(e.target.value)}
+                  className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white mb-2"
+                >
+                  <option value="">Select Purpose</option>
+                  <option value="Personal Use">Personal Use</option>
+                  <option value="Business Expansion">Business Expansion</option>
+                  <option value="Education">Education</option>
+                  <option value="Medical">Medical</option>
+                  <option value="Housing">Housing</option>
+                  <option value="Agriculture">Agriculture</option>
+                  <option value="Emergency">Emergency</option>
+                  <option value="Other">Other</option>
+                </select>
+                <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
+              {purposeScheme === "Other" && (
+                <textarea
+                  placeholder="Please specify the purpose..."
+                  value={customPurpose}
+                  onChange={(e) => setCustomPurpose(e.target.value)}
+                  rows={2}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 resize-none mt-2"
+                />
+              )}
             </div>
           </div>
         </div>
 
-        {/* Section 3 — Disbursement + Repayment */}
+        {/* Section 3 — Loan Amount & Repayment */}
         <div className="space-y-6">
           <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
             <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100">
@@ -681,23 +737,11 @@ export default function CooperativeLoanRequestPage() {
                 3
               </span>
               <h2 className="text-base font-bold text-navy-900">
-                Disbursement Details
+                Loan Amount & Repayment
               </h2>
             </div>
 
             <div className="p-6 space-y-5">
-              <div className="relative">
-                <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                  Disbursement Date
-                </label>
-                <input
-                  type="date"
-                  value={disbursementDate}
-                  onChange={(e) => setDisbursementDate(e.target.value)}
-                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-                />
-              </div>
-
               <div>
                 <label className="block text-sm font-medium text-navy-900 mb-1.5">
                   Principal Amount
@@ -749,16 +793,50 @@ export default function CooperativeLoanRequestPage() {
               </h2>
             </div>
 
-            <div className="p-6">
-              <label className="block text-sm font-medium text-navy-900 mb-1.5">
-                Date of First Installment
-              </label>
-              <input
-                type="date"
-                value={firstInstallmentDate}
-                onChange={(e) => setFirstInstallmentDate(e.target.value)}
-                className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
-              />
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-navy-900 mb-1.5">
+                  Monthly Salary Deduction for Loan Repayment
+                </label>
+                <select
+                  value={monthlySalaryDeductionType}
+                  onChange={(e) => setMonthlySalaryDeductionType(e.target.value as "calculated" | "custom")}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 mb-2"
+                >
+                  <option value="calculated">Calculated (₦{monthlyRepayment.toLocaleString(undefined, { minimumFractionDigits: 2 })}/month)</option>
+                  <option value="custom">Custom Amount</option>
+                </select>
+                {monthlySalaryDeductionType === "custom" && (
+                  <input
+                    type="number"
+                    placeholder="Enter custom monthly deduction amount"
+                    value={customMonthlyDeduction}
+                    onChange={(e) => setCustomMonthlyDeduction(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
+                  />
+                )}
+                <p className="text-xs text-gray-400 mt-1">
+                  This amount will be deducted from your salary monthly until the loan is fully repaid.
+                </p>
+              </div>
+
+              {selectedMember && (
+                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl">
+                  <p className="text-xs font-bold text-green-700 uppercase tracking-wide mb-2">My Monthly Savings Deduction</p>
+                  <p className="text-xs text-green-600 mb-2">Set how much you want to save monthly from your salary. Minimum: ₦7,000 (or ₦5,000 while repaying a loan).</p>
+                  <input
+                    type="number"
+                    min={5000}
+                    placeholder="Enter monthly savings amount (min ₦5,000)"
+                    value={selectedSavingsAmount}
+                    onChange={(e) => setSelectedSavingsAmount(e.target.value)}
+                    className="w-full px-4 py-2.5 border border-green-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500/20"
+                  />
+                  {selectedSavingsAmount && Number(selectedSavingsAmount) > 0 && Number(selectedSavingsAmount) < 5000 && (
+                    <p className="text-xs text-red-500 mt-1">Minimum savings deduction is ₦5,000 when taking a loan.</p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

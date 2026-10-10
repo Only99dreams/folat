@@ -21,8 +21,9 @@ import {
   Loader2,
   X,
   Save,
+  UserCheck,
 } from "lucide-react";
-import { fetchBranch, fetchMembers, fetchStaff, updateBranch } from "../lib/db";
+import { fetchBranch, fetchMembers, fetchStaff, updateBranch, fetchBranchAssignments } from "../lib/db";
 import { toastError, toastSuccess } from "../lib/toast";
 
 const tabs = ["Overview", "Staff", "Members"];
@@ -38,6 +39,7 @@ export default function BranchDetailPage() {
   const [members, setMembers] = useState<any[]>([]);
   const [staff, setStaff] = useState<any[]>([]);
   const [staffCount, setStaffCount] = useState(0);
+  const [assignments, setAssignments] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   /* ── Edit Modal ── */
@@ -56,7 +58,7 @@ export default function BranchDetailPage() {
           .from("branches")
           .select("id")
           .ilike("name", user.branch)
-          .single();
+          .maybeSingle();
         branchId = branchData?.id;
       }
 
@@ -66,18 +68,35 @@ export default function BranchDetailPage() {
         return;
       }
 
+      // Restrict branch_manager, secretary, officer to their own branch only
+      if ((user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer") && user?.branch) {
+        const { data: allowedBranch } = await supabase
+          .from("branches")
+          .select("id")
+          .ilike("name", user.branch)
+          .maybeSingle();
+        if (allowedBranch?.id && branchId !== allowedBranch.id) {
+          toastError("You do not have access to this branch");
+          navigate("/dashboard");
+          return;
+        }
+      }
+
       const b = await fetchBranch(branchId);
       setBranch(b);
       setEditForm({ name: b.name, address: b.address, city: b.city, state: b.state, phone: b.phone, email: b.email });
       
-      const mResult = await fetchMembers({ branch_id: branchId });
+      const mResult = await fetchMembers({ branch_id: branchId, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined });
       setMembers(mResult.data);
       setMemberCount(mResult.count ?? mResult.data.length);
       
-      const sResult = await fetchStaff({ branch_id: branchId });
+      const sResult = await fetchStaff({ branch_id: branchId, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined });
       const staffArr = Array.isArray(sResult) ? sResult : [];
       setStaff(staffArr);
       setStaffCount(staffArr.length);
+
+      const assignmentsData = await fetchBranchAssignments(branchId);
+      setAssignments(assignmentsData);
     } catch (err) {
       console.error(err);
       toastError("Failed to load branch data");
@@ -151,9 +170,12 @@ export default function BranchDetailPage() {
               <Trash2 className="w-4 h-4" />
               Disable
             </button>
-            <button className="flex items-center gap-2 px-4 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
+            <button
+              onClick={() => navigate(`/branches/${branch.id}/report`)}
+              className="flex items-center gap-2 px-4 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors"
+            >
               <FileText className="w-4 h-4" />
-              View Reports
+              View Branch Report
             </button>
           </div>
         </div>
@@ -245,6 +267,44 @@ export default function BranchDetailPage() {
               </div>
             </div>
 
+            {/* Secretary */}
+            {assignments.filter((a: any) => a.assignment_type === "secretary").length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] tracking-[0.12em] uppercase text-gray-400 font-semibold">
+                  Secretary
+                </p>
+                {assignments.filter((a: any) => a.assignment_type === "secretary").map((a: any) => (
+                  <div key={a.id} className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">
+                      {a.staff?.first_name?.[0]}{a.staff?.last_name?.[0]}
+                    </span>
+                    <span className="text-sm font-medium text-navy-900">
+                      {a.staff?.first_name} {a.staff?.last_name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Officer */}
+            {assignments.filter((a: any) => a.assignment_type === "officer").length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] tracking-[0.12em] uppercase text-gray-400 font-semibold">
+                  Officer
+                </p>
+                {assignments.filter((a: any) => a.assignment_type === "officer").map((a: any) => (
+                  <div key={a.id} className="flex items-center gap-2.5">
+                    <span className="w-8 h-8 rounded-full bg-gray-100 text-gray-700 flex items-center justify-center text-xs font-bold">
+                      {a.staff?.first_name?.[0]}{a.staff?.last_name?.[0]}
+                    </span>
+                    <span className="text-sm font-medium text-navy-900">
+                      {a.staff?.first_name} {a.staff?.last_name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Address */}
             <div className="space-y-1">
               <p className="text-[10px] tracking-[0.12em] uppercase text-gray-400 font-semibold">
@@ -313,10 +373,22 @@ export default function BranchDetailPage() {
                   <p className="text-sm text-gray-500">Branch Manager</p>
                   <p className="text-sm font-bold text-navy-900">{branch.manager?.full_name || "Not assigned"}</p>
                 </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-500">Manager Email</p>
-                  <p className="text-sm font-bold text-navy-900">{branch.manager?.email || "—"}</p>
-                </div>
+                {assignments.filter((a: any) => a.assignment_type === "secretary").length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-500">Secretary</p>
+                    <p className="text-sm font-bold text-navy-900">
+                      {assignments.filter((a: any) => a.assignment_type === "secretary").map((a: any) => `${a.staff?.first_name} ${a.staff?.last_name}`).join(", ")}
+                    </p>
+                  </div>
+                )}
+                {assignments.filter((a: any) => a.assignment_type === "officer").length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-500">Officer</p>
+                    <p className="text-sm font-bold text-navy-900">
+                      {assignments.filter((a: any) => a.assignment_type === "officer").map((a: any) => `${a.staff?.first_name} ${a.staff?.last_name}`).join(", ")}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -346,19 +418,36 @@ export default function BranchDetailPage() {
                   <tr className="text-left text-xs text-gray-400 uppercase tracking-wider border-b border-gray-100">
                     <th className="pb-3 font-semibold">Name</th>
                     <th className="pb-3 font-semibold">Role</th>
+                    <th className="pb-3 font-semibold">Assignment</th>
                     <th className="pb-3 font-semibold">Email</th>
                     <th className="pb-3 font-semibold">Phone</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {staff.map((s: any) => (
+                  {staff.map((s: any) => {
+                    const assignment = assignments.find((a: any) => a.staff_id === s.id);
+                    return (
                     <tr key={s.id} className="hover:bg-gray-50">
                       <td className="py-3 font-medium text-navy-900">{s.full_name}</td>
                       <td className="py-3 text-gray-500 capitalize">{s.role?.replace(/_/g, " ")}</td>
+                      <td className="py-3">
+                        {assignment ? (
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                            assignment.assignment_type === 'branch_manager' ? 'bg-blue-100 text-blue-700' :
+                            assignment.assignment_type === 'secretary' ? 'bg-purple-100 text-purple-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {assignment.assignment_type.replace('_', ' ')}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
                       <td className="py-3 text-gray-500">{s.email || "—"}</td>
                       <td className="py-3 text-gray-500">{s.phone || "—"}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

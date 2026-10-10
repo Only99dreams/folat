@@ -22,6 +22,7 @@ import {
   fetchFinanceTransactions,
   fetchBranches,
 } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 /* ─── Report Types ─── */
 interface ReportType {
@@ -87,48 +88,65 @@ const reportTypes: ReportType[] = [
 const recentReports: { name: string; type: string; size: string; date: string; generatedBy: string }[] = [];
 
 export default function ReportsPage() {
+  const { user } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [generating, setGenerating] = useState<string | null>(null);
   const [generatedReports, setGeneratedReports] = useState<typeof recentReports>([]);
   const [stats, setStats] = useState({ totalMembers: 0, activeLoans: 0, totalSavings: 0, totalBranches: 0 });
-  const [loading, setLoading] = useState(true);
+  // `statsLoading` is used for the Apply button and stats widgets
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [dateFrom, setDateFrom] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
   const categories = ["All", "Financial", "Membership", "Loans", "Savings", "Branches"];
 
+  const applyDateFilter = async () => {
+    setStatsLoading(true);
+    try {
+      const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
+      const ds = await fetchDashboardStats({ date_from: dateFrom, date_to: dateTo, user: userObj });
+      setStats(ds as any);
+    } catch (e) { console.error(e); }
+    finally {
+      setStatsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    (async () => {
-      try {
-        const ds = await fetchDashboardStats();
-        setStats(ds as any);
-      } catch (e) { console.error(e); }
-      setLoading(false);
-    })();
+    // Load initial stats for the default date range
+    applyDateFilter();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleGenerate = async (reportId: string, reportName: string) => {
     setGenerating(reportId);
     try {
+      const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
       let csvContent = "";
       let rows: string[][] = [];
       if (reportId === "1" || reportId === "6") {
-        const { data } = await fetchFinanceTransactions({ page: 1, pageSize: 500 });
+        const { data } = await fetchFinanceTransactions({ page: 1, pageSize: 500, date_from: dateFrom, date_to: dateTo, user: userObj });
         rows = [["Date", "Type", "Category", "Description", "Amount", "Branch"]];
         data.forEach((t: any) => rows.push([t.date, t.type, t.category, t.description, t.amount, t.branch?.name || ""]));
       } else if (reportId === "2") {
-        const { data } = await fetchMembers({ page: 1, pageSize: 500 });
+        const { data } = await fetchMembers({ page: 1, pageSize: 500, date_from: dateFrom, date_to: dateTo, user: userObj });
         rows = [["Member ID", "First Name", "Last Name", "Email", "Phone", "Status", "Type", "Created"]];
         data.forEach((m: any) => rows.push([m.member_id, m.first_name, m.last_name, m.email || "", m.phone || "", m.status, m.member_type || "", m.created_at]));
       } else if (reportId === "3") {
-        const { data } = await fetchLoanApplications({ page: 1, pageSize: 500 });
+        const { data } = await fetchLoanApplications({ page: 1, pageSize: 500, user: userObj, date_from: dateFrom, date_to: dateTo });
         rows = [["Loan ID", "Member", "Amount Requested", "Amount Approved", "Status", "Type", "Created"]];
         data.forEach((l: any) => rows.push([l.loan_id || "", l.member ? `${l.member.first_name} ${l.member.last_name}` : "", l.amount_requested, l.amount_approved || "", l.status, l.loan_type || "", l.created_at]));
       } else if (reportId === "4") {
-        const { data } = await fetchSavingsTransactions({ page: 1, pageSize: 500 });
+        const { data } = await fetchSavingsTransactions({ page: 1, pageSize: 500, date_from: dateFrom, date_to: dateTo, user: userObj });
         rows = [["Transaction ID", "Member", "Type", "Amount", "Date"]];
         data.forEach((t: any) => rows.push([t.transaction_id || "", t.member ? `${t.member.first_name} ${t.member.last_name}` : "", t.type, t.amount, t.created_at]));
       } else if (reportId === "5") {
         const branches = await fetchBranches();
+        const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+        const filteredBranches = isRestricted && user?.branch
+          ? branches.filter((b: any) => b.name.toLowerCase() === user.branch.toLowerCase())
+          : branches;
         rows = [["Branch Name", "Code", "Location", "Manager", "Status"]];
-        branches.forEach((b: any) => rows.push([b.name, b.code || "", b.location || "", b.manager?.full_name || "", b.status]));
+        filteredBranches.forEach((b: any) => rows.push([b.name, b.code || "", b.location || "", b.manager?.full_name || "", b.status]));
       }
       csvContent = rows.map(r => r.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
@@ -159,10 +177,29 @@ export default function ReportsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 px-4 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600">
+          <div className="flex flex-col sm:flex-row items-center gap-2 px-3 py-2 border border-gray-200 rounded-xl text-sm text-gray-600">
             <Calendar className="w-4 h-4 text-gray-400" />
-            {new Date(new Date().getFullYear(), new Date().getMonth(), 1).toLocaleDateString("en-NG", { month: "short", day: "numeric" })} – {new Date().toLocaleDateString("en-NG", { month: "short", day: "numeric", year: "numeric" })}
-            <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="text-sm px-2 py-1 border border-transparent focus:border-gray-300 rounded-md w-full sm:w-auto"
+            />
+            <span className="text-gray-400 hidden sm:inline-block">—</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              className="text-sm px-2 py-1 border border-transparent focus:border-gray-300 rounded-md w-full sm:w-auto"
+            />
+            <button
+              onClick={applyDateFilter}
+              disabled={statsLoading}
+              className={`mt-2 sm:mt-0 ml-0 sm:ml-2 px-2 py-1 rounded-md text-xs flex items-center justify-center gap-2 w-full sm:w-auto ${statsLoading ? 'bg-gray-200 text-gray-600' : 'bg-green-50 text-green-700'}`}
+            >
+              {statsLoading ? <Loader2 className="w-4 h-4 animate-spin text-gray-600" /> : null}
+              Apply
+            </button>
           </div>
         </div>
       </div>
@@ -174,28 +211,28 @@ export default function ReportsPage() {
             <Users className="w-4 h-4 text-green-600" />
             <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Total Members</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : stats.totalMembers}</p>
+          <p className="text-2xl font-bold text-navy-900">{statsLoading ? "—" : stats.totalMembers}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
             <Wallet className="w-4 h-4 text-blue-600" />
             <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Active Loans</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : stats.activeLoans}</p>
+          <p className="text-2xl font-bold text-navy-900">{statsLoading ? "—" : stats.activeLoans}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="w-4 h-4 text-amber-500" />
             <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Total Savings</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : `₦ ${stats.totalSavings.toLocaleString()}`}</p>
+          <p className="text-2xl font-bold text-navy-900">{statsLoading ? "—" : `₦ ${stats.totalSavings.toLocaleString()}`}</p>
         </div>
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <div className="flex items-center gap-2 mb-2">
             <Building2 className="w-4 h-4 text-purple-600" />
             <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">Branches</p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">{loading ? "—" : stats.totalBranches}</p>
+          <p className="text-2xl font-bold text-navy-900">{statsLoading ? "—" : stats.totalBranches}</p>
         </div>
       </div>
 

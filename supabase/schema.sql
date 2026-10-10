@@ -11,14 +11,16 @@ ALTER TABLE public.profiles
 
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_role_check
-  CHECK (role IN ('super_admin','branch_manager','finance_officer','loan_officer','staff_member','front_desk','auditor','hr_manager','unassigned'));
+  CHECK (role IN ('super_admin','branch_manager','finance_officer','loan_officer','staff_member','front_desk','auditor','hr_manager','secretary','officer','unassigned'));
 
--- Add status columns if missing
+-- Add status columns if missing`` 
 DO $do1$ BEGIN
   ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active';
   ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS last_login timestamptz;
 EXCEPTION WHEN others THEN NULL;
 END $do1$;
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS verification_token_hash text;
 
 -- ────────────────────────────────────────────
 -- 2. BRANCHES
@@ -51,6 +53,29 @@ CREATE POLICY "Super admin and branch managers can insert branches" ON public.br
 DROP POLICY IF EXISTS "Super admin and branch managers can update branches" ON public.branches;
 CREATE POLICY "Super admin and branch managers can update branches" ON public.branches
   FOR UPDATE USING (auth.role() = 'authenticated');
+
+-- ────────────────────────────────────────────
+-- BRANCH ASSIGNMENTS (Manager / Secretary)
+-- ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.branch_assignments (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  branch_id uuid NOT NULL REFERENCES public.branches(id) ON DELETE CASCADE,
+  staff_id uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  assignment_type text NOT NULL CHECK (assignment_type IN ('branch_manager','secretary','officer')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(branch_id, staff_id, assignment_type)
+);
+
+ALTER TABLE public.branch_assignments ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can view branch_assignments" ON public.branch_assignments;
+CREATE POLICY "Authenticated users can view branch_assignments" ON public.branch_assignments
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "HR and admins can manage branch_assignments" ON public.branch_assignments;
+CREATE POLICY "HR and admins can manage branch_assignments" ON public.branch_assignments
+  FOR ALL USING (auth.role() = 'authenticated');
 
 -- ────────────────────────────────────────────
 -- 3. MEMBERS (cooperative members + external customers)
@@ -211,6 +236,7 @@ CREATE TABLE IF NOT EXISTS public.savings_transactions (
   notes text DEFAULT '',
   recorded_by uuid REFERENCES public.profiles(id),
   branch_id uuid REFERENCES public.branches(id),
+  savings_month date,  -- explicit month the deposit is for (used by count_savings_months)
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -242,8 +268,9 @@ CREATE TABLE IF NOT EXISTS public.loan_applications (
   risk_premium numeric(5,2) DEFAULT 0,
   service_charge numeric(15,2) DEFAULT 0,
   loan_cycle integer DEFAULT 1,
-  disbursement_date date,
+   disbursement_date date,
   first_installment_date date,
+  disbursed_by uuid REFERENCES public.profiles(id),
   monthly_repayment numeric(15,2) DEFAULT 0,
   total_repayable numeric(15,2) DEFAULT 0,
   status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','under_review','approved','rejected','disbursed','active','completed','defaulted','written_off')),
@@ -255,9 +282,23 @@ CREATE TABLE IF NOT EXISTS public.loan_applications (
   guarantor1_name text DEFAULT '',
   guarantor1_savings numeric(15,2) DEFAULT 0,
   guarantor1_status text DEFAULT '',
+  guarantor1_phone text DEFAULT '',
+  guarantor1_email text DEFAULT '',
+  guarantor1_staff_id uuid REFERENCES public.staff(id),
+  guarantor1_eligibility text DEFAULT 'not_eligible',
+  guarantor1_approval_status text DEFAULT 'pending',
+  guarantor1_approval_note text DEFAULT '',
+  guarantor1_approved_at timestamptz,
   guarantor2_name text DEFAULT '',
   guarantor2_savings numeric(15,2) DEFAULT 0,
   guarantor2_status text DEFAULT '',
+  guarantor2_phone text DEFAULT '',
+  guarantor2_email text DEFAULT '',
+  guarantor2_staff_id uuid REFERENCES public.staff(id),
+  guarantor2_eligibility text DEFAULT 'not_eligible',
+  guarantor2_approval_status text DEFAULT 'pending',
+  guarantor2_approval_note text DEFAULT '',
+  guarantor2_approved_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -275,6 +316,8 @@ CREATE POLICY "Authenticated users can insert loan_applications" ON public.loan_
 DROP POLICY IF EXISTS "Authenticated users can update loan_applications" ON public.loan_applications;
 CREATE POLICY "Authenticated users can update loan_applications" ON public.loan_applications
   FOR UPDATE USING (auth.role() = 'authenticated');
+
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS outstanding_balance numeric(15,2) NOT NULL DEFAULT 0;
 
 -- ────────────────────────────────────────────
 -- 7. LOAN REPAYMENTS
@@ -309,6 +352,37 @@ CREATE POLICY "Authenticated users can view loan_repayments" ON public.loan_repa
 DROP POLICY IF EXISTS "Authenticated users can insert loan_repayments" ON public.loan_repayments;
 CREATE POLICY "Authenticated users can insert loan_repayments" ON public.loan_repayments
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+CREATE TABLE IF NOT EXISTS public.repayment_requests (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  loan_id uuid NOT NULL REFERENCES public.loan_applications(id),
+  member_id uuid NOT NULL REFERENCES public.members(id),
+  amount numeric(15,2) NOT NULL,
+  payment_method text DEFAULT 'cash',
+  proof_url text DEFAULT '',
+  reference text DEFAULT '',
+  notes text DEFAULT '',
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  requested_by uuid REFERENCES public.profiles(id),
+  approved_by uuid REFERENCES public.profiles(id),
+  approval_notes text DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.repayment_requests ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can view repayment_requests" ON public.repayment_requests;
+CREATE POLICY "Authenticated users can view repayment_requests" ON public.repayment_requests
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can insert repayment_requests" ON public.repayment_requests;
+CREATE POLICY "Authenticated users can insert repayment_requests" ON public.repayment_requests
+  FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Authenticated users can update repayment_requests" ON public.repayment_requests;
+CREATE POLICY "Authenticated users can update repayment_requests" ON public.repayment_requests
+  FOR UPDATE USING (auth.role() = 'authenticated');
 
 -- ────────────────────────────────────────────
 -- 8. LOAN REPAYMENT SCHEDULE
@@ -428,6 +502,10 @@ CREATE TABLE IF NOT EXISTS public.staff (
   housing_allowance numeric(15,2) DEFAULT 0,
   transport_allowance numeric(15,2) DEFAULT 0,
   other_allowances numeric(15,2) DEFAULT 0,
+  is_cooperative_member boolean NOT NULL DEFAULT false,
+  cooperative_savings_rate numeric(5,2) DEFAULT 0,
+  cooperative_savings_amount numeric(15,2) DEFAULT 7000,
+  loan_repayment_amount numeric(15,2) DEFAULT 0,
   photo_url text DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -446,6 +524,34 @@ CREATE POLICY "Authenticated users can insert staff" ON public.staff
 DROP POLICY IF EXISTS "Authenticated users can update staff" ON public.staff;
 CREATE POLICY "Authenticated users can update staff" ON public.staff
   FOR UPDATE USING (auth.role() = 'authenticated');
+
+-- ────────────────────────────────────────────
+-- SALARY DEDUCTIONS (savings + loan repayments)
+-- ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.salary_deductions (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  staff_id uuid NOT NULL REFERENCES public.staff(id) ON DELETE CASCADE,
+  member_id uuid REFERENCES public.members(id),
+  deduction_type text NOT NULL CHECK (deduction_type IN ('savings','loan_repayment')),
+  amount numeric(15,2) NOT NULL,
+  month date NOT NULL,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processed','failed','cancelled')),
+  processed_by uuid REFERENCES public.profiles(id),
+  processed_at timestamptz,
+  reference text DEFAULT '',
+  notes text DEFAULT '',
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.salary_deductions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Authenticated users can view salary_deductions" ON public.salary_deductions;
+CREATE POLICY "Authenticated users can view salary_deductions" ON public.salary_deductions
+  FOR SELECT USING (auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "HR and admins can manage salary_deductions" ON public.salary_deductions;
+CREATE POLICY "HR and admins can manage salary_deductions" ON public.salary_deductions
+  FOR ALL USING (auth.role() = 'authenticated');
 
 -- ────────────────────────────────────────────
 -- 12. LEAVE REQUESTS
@@ -676,6 +782,16 @@ CREATE POLICY "Super admin can update any profile"
     )
   );
 
+-- HR manager can update profiles so staff edits (phone, branch, name) sync to dashboards
+DROP POLICY IF EXISTS "HR manager can update any profile" ON public.profiles;
+CREATE POLICY "HR manager can update any profile"
+  ON public.profiles FOR UPDATE
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p WHERE p.id = auth.uid() AND p.role = 'hr_manager'
+    )
+  );
+
 -- ────────────────────────────────────────────
 -- 21. INDEXES
 -- ────────────────────────────────────────────
@@ -802,23 +918,30 @@ ALTER TABLE public.fund_requests ADD COLUMN IF NOT EXISTS document_url text DEFA
 -- Justification for fund requests
 ALTER TABLE public.fund_requests ADD COLUMN IF NOT EXISTS justification text DEFAULT '';
 
+-- Monthly repayment amount for cooperative loans
+ALTER TABLE public.loan_applications ADD COLUMN IF NOT EXISTS monthly_repayment_amount numeric(15,2) DEFAULT 0;
+
 -- Avatar URL for profile photos
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS avatar_url text DEFAULT '';
 
 -- Staff guarantor eligibility (set by backend rules only)
 ALTER TABLE public.staff ADD COLUMN IF NOT EXISTS guarantor_eligible boolean NOT NULL DEFAULT false;
 
+-- Manual "months saved" override used for cooperative loan eligibility.
+-- NULL = derived from savings transaction history via count_savings_months.
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS savings_months integer;
+ALTER TABLE public.staff ADD COLUMN IF NOT EXISTS savings_months integer;
+
 -- ────────────────────────────────────────────
--- 24. WEEKLY PAYMENT TRACKING (booklet-to-digital workflow)
+-- 24. MONTHLY PAYMENT TRACKING (booklet-to-digital workflow)
 -- ────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS public.weekly_payments (
+CREATE TABLE IF NOT EXISTS public.monthly_payments (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   member_id uuid NOT NULL REFERENCES public.members(id),
   group_id uuid REFERENCES public.groups(id),
   branch_id uuid REFERENCES public.branches(id),
   loan_id uuid REFERENCES public.loan_applications(id),
-  week_number integer NOT NULL,           -- ISO week number (1–53)
-  week_start_date date NOT NULL,          -- Monday of the week
+  month_number integer NOT NULL CHECK (month_number BETWEEN 1 AND 12),
   year integer NOT NULL,
   amount_due numeric(15,2) NOT NULL DEFAULT 0,
   amount_paid numeric(15,2) NOT NULL DEFAULT 0,
@@ -831,28 +954,31 @@ CREATE TABLE IF NOT EXISTS public.weekly_payments (
   recorded_by uuid REFERENCES public.profiles(id),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(member_id, loan_id, week_start_date)
+  UNIQUE(member_id, loan_id, year, month_number)
 );
 
-ALTER TABLE public.weekly_payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.monthly_payments ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Authenticated users can view weekly_payments" ON public.weekly_payments;
-CREATE POLICY "Authenticated users can view weekly_payments" ON public.weekly_payments
+DROP POLICY IF EXISTS "Authenticated users can view monthly_payments" ON public.monthly_payments;
+CREATE POLICY "Authenticated users can view monthly_payments" ON public.monthly_payments
   FOR SELECT USING (auth.role() = 'authenticated');
 
-DROP POLICY IF EXISTS "Authenticated users can insert weekly_payments" ON public.weekly_payments;
-CREATE POLICY "Authenticated users can insert weekly_payments" ON public.weekly_payments
+DROP POLICY IF EXISTS "Authenticated users can insert monthly_payments" ON public.monthly_payments;
+CREATE POLICY "Authenticated users can insert monthly_payments" ON public.monthly_payments
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 
-DROP POLICY IF EXISTS "Authenticated users can update weekly_payments" ON public.weekly_payments;
-CREATE POLICY "Authenticated users can update weekly_payments" ON public.weekly_payments
+DROP POLICY IF EXISTS "Authenticated users can update monthly_payments" ON public.monthly_payments;
+CREATE POLICY "Authenticated users can update monthly_payments" ON public.monthly_payments
   FOR UPDATE USING (auth.role() = 'authenticated');
 
-CREATE INDEX IF NOT EXISTS idx_weekly_payments_member ON public.weekly_payments(member_id);
-CREATE INDEX IF NOT EXISTS idx_weekly_payments_group ON public.weekly_payments(group_id);
-CREATE INDEX IF NOT EXISTS idx_weekly_payments_branch ON public.weekly_payments(branch_id);
-CREATE INDEX IF NOT EXISTS idx_weekly_payments_week ON public.weekly_payments(year, week_number);
-CREATE INDEX IF NOT EXISTS idx_weekly_payments_loan ON public.weekly_payments(loan_id);
+CREATE INDEX IF NOT EXISTS idx_monthly_payments_member ON public.monthly_payments(member_id);
+CREATE INDEX IF NOT EXISTS idx_monthly_payments_group ON public.monthly_payments(group_id);
+CREATE INDEX IF NOT EXISTS idx_monthly_payments_branch ON public.monthly_payments(branch_id);
+CREATE INDEX IF NOT EXISTS idx_monthly_payments_month ON public.monthly_payments(year, month_number);
+CREATE INDEX IF NOT EXISTS idx_monthly_payments_loan ON public.monthly_payments(loan_id);
+
+-- Keep old weekly_payments table for backward compatibility during migration
+-- New code should use monthly_payments exclusively
 
 -- ────────────────────────────────────────────
 -- 25. SAVINGS WITHDRAWALS TABLE (cooperative module)
@@ -860,6 +986,7 @@ CREATE INDEX IF NOT EXISTS idx_weekly_payments_loan ON public.weekly_payments(lo
 -- Withdrawals are already handled in savings_transactions with type='withdrawal'
 -- No additional table needed, but add a withdrawal_reason field
 ALTER TABLE public.savings_transactions ADD COLUMN IF NOT EXISTS withdrawal_reason text DEFAULT '';
+ALTER TABLE public.savings_transactions ADD COLUMN IF NOT EXISTS savings_month date;
 
 -- ────────────────────────────────────────────
 -- 26. LOAN RULES & REGULATIONS
@@ -890,3 +1017,32 @@ CREATE POLICY "Authenticated users can manage loan_rules" ON public.loan_rules
 -- 27. STORAGE BUCKETS (run in Supabase dashboard or via API)
 -- ────────────────────────────────────────────
 -- INSERT INTO storage.buckets (id, name, public) VALUES ('documents', 'documents', true) ON CONFLICT DO NOTHING;
+
+-- ────────────────────────────────────────────
+-- 28. DELETE MEMBER CASCADING FUNCTION
+-- ────────────────────────────────────────────
+CREATE OR REPLACE FUNCTION public.delete_member(p_member_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  -- Delete child records that block deletion (no ON DELETE CASCADE)
+  DELETE FROM public.monthly_payments WHERE member_id = p_member_id;
+  DELETE FROM public.salary_deductions WHERE member_id = p_member_id;
+  DELETE FROM public.repayment_requests WHERE member_id = p_member_id;
+  DELETE FROM public.loan_repayments WHERE member_id = p_member_id;
+  DELETE FROM public.loan_applications WHERE member_id = p_member_id;
+  DELETE FROM public.savings_transactions WHERE member_id = p_member_id;
+
+  -- Nullify group references that point to this member
+  UPDATE public.groups SET leader_id = NULL WHERE leader_id = p_member_id;
+  UPDATE public.groups SET secretary_id = NULL WHERE secretary_id = p_member_id;
+
+  -- These cascade automatically (ON DELETE CASCADE):
+  -- group_members, savings_accounts
+
+  -- Delete the member
+  DELETE FROM public.members WHERE id = p_member_id;
+END;
+$$;

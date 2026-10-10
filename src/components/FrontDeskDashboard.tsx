@@ -32,7 +32,7 @@ export default function FrontDeskDashboard() {
     (async () => {
       try {
         const [dashStats, deposits, members] = await Promise.all([
-          fetchDashboardStats(),
+          fetchDashboardStats(undefined, user ? { id: user.id, role: user.role, branch: user.branch } : undefined),
           fetchRecentTransactions(5),
           fetchMembers({ page: 1, pageSize: 5 }),
         ]);

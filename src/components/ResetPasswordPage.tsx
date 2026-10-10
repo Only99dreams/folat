@@ -30,26 +30,83 @@ export default function ResetPasswordPage() {
 
   const strength = useMemo(() => getStrength(password), [password]);
 
-  // Listen for the PASSWORD_RECOVERY event when Supabase redirects here
+  // Try to detect the temporary recovery session Supabase provides after the
+  // user clicks the password recovery link. Be resilient to different SDK
+  // helpers (getSessionFromUrl / setSession) and fall back to parsing the
+  // URL fragment for access/refresh tokens.
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setSessionReady(true);
+    let subscription: any;
+    let mounted = true;
+
+    (async () => {
+      try {
+        // Subscribe to auth events (PASSWORD_RECOVERY)
+        const res: any = supabase.auth.onAuthStateChange((event: string) => {
+          if (event === "PASSWORD_RECOVERY") {
+            if (mounted) setSessionReady(true);
+          }
+        });
+
+        // Normalize possible return shapes
+        if (res && res.data && res.data.subscription) subscription = res.data.subscription;
+        else if (res && res.subscription) subscription = res.subscription;
+
+        // If there's an active session already, we're ready
+        const sessionResp: any = await supabase.auth.getSession();
+        if (sessionResp?.data?.session) {
+          if (mounted) setSessionReady(true);
+          return;
+        }
+
+        // Try SDK helper if present
+        if ((supabase.auth as any).getSessionFromUrl) {
+          try {
+            const r = await (supabase.auth as any).getSessionFromUrl();
+            if (r?.data?.session) {
+              if (mounted) setSessionReady(true);
+              return;
+            }
+          } catch (err) {
+            // ignore and continue to other fallbacks
+          }
+        }
+
+        // Fallback: parse tokens from URL hash and set session (if supported)
+        const hash = window.location.hash || "";
+        if (hash) {
+          const params = new URLSearchParams(hash.replace(/^#/, ""));
+          const access_token = params.get("access_token");
+          const refresh_token = params.get("refresh_token");
+          if (access_token && refresh_token && (supabase.auth as any).setSession) {
+            try {
+              const { data: setData, error: setError } = await (supabase.auth as any).setSession({ access_token, refresh_token });
+              if (!setError && setData?.session && mounted) {
+                setSessionReady(true);
+                return;
+              }
+            } catch (err) {
+              // ignore
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to initialize recovery session:", err);
       }
-    });
+    })();
 
-    // Also check if there's already an active session (user may have already landed)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setSessionReady(true);
-    });
-
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      if (subscription && subscription.unsubscribe) subscription.unsubscribe();
+    };
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-
+    if (!sessionReady) {
+      setError("Open the password recovery link in this browser before updating your password.");
+      return;
+    }
     if (password.length < 6) {
       setError("Password must be at least 6 characters.");
       return;

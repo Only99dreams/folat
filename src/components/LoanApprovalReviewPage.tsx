@@ -7,8 +7,9 @@ import {
   CheckCircle2,
   XCircle,
   Loader2,
+  AlertTriangle,
 } from "lucide-react";
-import { fetchLoanApplication, approveLoan, rejectLoan } from "../lib/db";
+import { fetchLoanApplication, approveLoan, rejectLoan, getTotalAvailableFunds, fetchSavingsAccount, fetchLoanApplications } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 
 export default function LoanApprovalReviewPage() {
@@ -21,11 +22,39 @@ export default function LoanApprovalReviewPage() {
   const [decisionNotes, setDecisionNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [availableFunds, setAvailableFunds] = useState(0);
+  const [loadingFunds, setLoadingFunds] = useState(true);
+  const [memberSavings, setMemberSavings] = useState(0);
+  const [existingLoans, setExistingLoans] = useState(0);
+  const [loadingMemberData, setLoadingMemberData] = useState(true);
 
   useEffect(() => {
     if (!id) return;
     fetchLoanApplication(id).then(setLoan).catch(() => {}).finally(() => setLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    getTotalAvailableFunds().then(amt => {
+      setAvailableFunds(Number(amt) || 0);
+      setLoadingFunds(false);
+    }).catch(() => setLoadingFunds(false));
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      if (!loan?.member_id) { setLoadingMemberData(false); return; }
+      setLoadingMemberData(true);
+      try {
+        const [savings, loans] = await Promise.all([
+          fetchSavingsAccount(loan.member_id),
+          fetchLoanApplications({ member_id: loan.member_id, pageSize: 100 }),
+        ]);
+        setMemberSavings(Number(savings?.balance ?? 0));
+        setExistingLoans(loans.data.reduce((s: number, l: any) => s + Number(l.outstanding_balance ?? l.amount_approved ?? l.amount_requested ?? 0), 0));
+      } catch {}
+      setLoadingMemberData(false);
+    })();
+  }, [loan?.member_id]);
 
   const handleDecision = async () => {
     if (!id || !profile) return;
@@ -51,8 +80,29 @@ export default function LoanApprovalReviewPage() {
   const principal = Number(loan.amount_requested ?? 0);
   const interestRate = Number(loan.interest_rate ?? 0);
   const months = Number(loan.duration_months ?? 12);
-  const totalInterest = principal * (interestRate / 100) * (months / 12);
-  const monthlyRepayment = months > 0 ? (principal + totalInterest) / months : 0;
+  const totalInterest = principal * (interestRate / 100);
+  const serviceCharge = Number(loan.service_charge ?? 0);
+  const monthlyRepayment = months > 0 ? (principal + totalInterest + serviceCharge) / months : 0;
+
+  const guarantors: { name: string; savings: string; loanStatus: string; eligibility: string; approvalStatus: string }[] = [];
+  if (loan.guarantor1_name?.trim()) {
+    guarantors.push({
+      name: loan.guarantor1_name,
+      savings: "—",
+      loanStatus: "—",
+      eligibility: "Eligible",
+      approvalStatus: loan.guarantor1_approval_status ?? "pending",
+    });
+  }
+  if (loan.guarantor2_name?.trim()) {
+    guarantors.push({
+      name: loan.guarantor2_name,
+      savings: "—",
+      loanStatus: "—",
+      eligibility: "Eligible",
+      approvalStatus: loan.guarantor2_approval_status ?? "pending",
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -137,7 +187,11 @@ export default function LoanApprovalReviewPage() {
                 <p className="text-xs text-gray-400 font-medium mb-1">
                   Total Savings
                 </p>
-                <p className="text-xl font-bold text-navy-900">₦350,000</p>
+                {loadingMemberData ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
+                ) : (
+                  <p className="text-xl font-bold text-navy-900">₦{memberSavings.toLocaleString()}</p>
+                )}
               </div>
 
               {/* Existing Loans */}
@@ -145,7 +199,11 @@ export default function LoanApprovalReviewPage() {
                 <p className="text-xs text-gray-400 font-medium mb-1">
                   Existing Loans
                 </p>
-                <p className="text-xl font-bold text-navy-900">₦0</p>
+                {loadingMemberData ? (
+                  <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
+                ) : (
+                  <p className="text-xl font-bold text-navy-900">₦{existingLoans.toLocaleString()}</p>
+                )}
               </div>
 
               {/* Eligibility Status */}
@@ -186,10 +244,19 @@ export default function LoanApprovalReviewPage() {
                     <th className="px-4 py-3.5 text-[10px] tracking-[0.1em] uppercase text-green-600 font-semibold">
                       Eligibility
                     </th>
+                    <th className="px-4 py-3.5 text-[10px] tracking-[0.1em] uppercase text-green-600 font-semibold">
+                      Approval Status
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {guarantors.map((g, i) => (
+                  {guarantors.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-400">
+                        No guarantors have been assigned to this loan application.
+                      </td>
+                    </tr>
+                  ) : guarantors.map((g, i) => (
                     <tr
                       key={i}
                       className="border-b border-gray-50 last:border-b-0"
@@ -206,6 +273,17 @@ export default function LoanApprovalReviewPage() {
                       <td className="px-4 py-4">
                         <span className="text-sm font-semibold text-green-600">
                           {g.eligibility}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex px-2.5 py-1 rounded text-xs font-semibold border ${
+                          g.approvalStatus === "approved"
+                            ? "bg-green-50 text-green-600 border-green-200"
+                            : g.approvalStatus === "rejected"
+                            ? "bg-red-50 text-red-600 border-red-200"
+                            : "bg-amber-50 text-amber-600 border-amber-200"
+                        }`}>
+                          {g.approvalStatus.charAt(0).toUpperCase() + g.approvalStatus.slice(1)}
                         </span>
                       </td>
                     </tr>
@@ -267,6 +345,33 @@ export default function LoanApprovalReviewPage() {
               Applicant has excellent repayment history and healthy
               debt-to-income ratio.
             </p>
+          </div>
+
+          {/* ── Available Funds ── */}
+          <div className="bg-white rounded-xl border border-gray-100 p-6">
+            <h2 className="text-base font-bold text-navy-900 mb-4">
+              Available Funds
+            </h2>
+            {loadingFunds ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-400 font-medium">Total Available Balance</p>
+                  <p className={`text-2xl font-bold ${availableFunds >= principal ? 'text-green-600' : 'text-red-500'}`}>
+                    ₦{availableFunds.toLocaleString()}
+                  </p>
+                </div>
+                {availableFunds < principal && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                    <span className="text-sm text-red-600 font-medium">Insufficient funds</span>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Final Decision ── */}
@@ -338,7 +443,7 @@ export default function LoanApprovalReviewPage() {
             {error && <p className="text-sm text-red-500 mb-3">{error}</p>}
             <button
               onClick={handleDecision}
-              disabled={submitting || decision !== "approve"}
+              disabled={submitting || decision !== "approve" || (availableFunds < principal && !loadingFunds)}
               className="w-full flex items-center justify-center gap-2 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors mb-3 disabled:opacity-50"
             >
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}

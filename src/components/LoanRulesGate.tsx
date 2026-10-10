@@ -38,6 +38,49 @@ const defaultRules = [
   },
 ];
 
+const cooperativeTerms = [
+  {
+    title: "Minimum Savings Period",
+    content: "A new member must maintain savings with the cooperative for a minimum period of six (6) months before becoming eligible to apply for a cooperative loan.",
+  },
+  {
+    title: "Repayment Period",
+    content: "The repayment period for any approved cooperative loan shall not exceed twelve (12) months.",
+  },
+  {
+    title: "Processing Time",
+    content: "Loan applications are typically processed and approved within three (3) to five (5) working days, subject to compliance with the cooperative's requirements and approval procedures.",
+  },
+  {
+    title: "Guarantor Eligibility",
+    content: "Every loan applicant must provide a guarantor who is a member of staff and is not currently servicing a cooperative loan.",
+  },
+  {
+    title: "Concurrent Loan Eligibility",
+    content: "Only managers may be eligible to obtain both an asset loan and a cooperative loan simultaneously, provided their salary can adequately support the repayments. Such approvals shall be subject to management's discretion.",
+  },
+  {
+    title: "Asset Loan Service Requirement",
+    content: "An employee must have completed a minimum of four (4) months of service before becoming eligible for an asset loan.",
+  },
+  {
+    title: "Asset Loan Amounts",
+    content: "Asset loans commence from ₦150,000 for Credit Officers, while managers are eligible from ₦200,000 and above, subject to approval and eligibility requirements.",
+  },
+  {
+    title: "Asset Loan Guarantor",
+    content: "Applicants for an asset loan must provide a guarantor within the organization who is not currently benefiting from an asset loan.",
+  },
+  {
+    title: "Asset Loan Repayment Period",
+    content: "The repayment period for an asset loan shall not exceed ten (10) months.",
+  },
+  {
+    title: "Post-Resignation Savings Release",
+    content: "Any staff member who resigns from the organization shall be entitled to receive his or her cooperative savings no earlier than one (1) month after resignation. However, where issues arise during the audit or clearance process, the payment may be delayed until all outstanding matters have been satisfactorily resolved.",
+  },
+];
+
 export default function LoanRulesGate({ onAccept, category }: LoanRulesGateProps) {
   const [rules, setRules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,9 +91,9 @@ export default function LoanRulesGate({ onAccept, category }: LoanRulesGateProps
     (async () => {
       try {
         const data = await fetchLoanRules(category);
-        setRules(data.length > 0 ? data : defaultRules);
+        setRules(data.length > 0 ? data : (category === "cooperative" ? cooperativeTerms : defaultRules));
       } catch {
-        setRules(defaultRules);
+        setRules(category === "cooperative" ? cooperativeTerms : defaultRules);
       }
       setLoading(false);
     })();
@@ -78,7 +121,7 @@ export default function LoanRulesGate({ onAccept, category }: LoanRulesGateProps
         <div className="w-16 h-16 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-4">
           <ScrollText className="w-8 h-8 text-amber-600" />
         </div>
-        <h1 className="text-2xl font-bold text-navy-900">Loan Rules & Regulations</h1>
+        <h1 className="text-2xl font-bold text-navy-900">{category === "cooperative" ? "Terms & Conditions for Cooperative Members" : "Loan Rules & Regulations"}</h1>
         <p className="text-sm text-gray-500 mt-2">
           Please read and accept the following terms before proceeding with a loan application.
         </p>

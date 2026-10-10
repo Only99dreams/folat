@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Search,
   Download,
@@ -12,11 +12,15 @@ import {
   ChevronRight,
   Building2,
   Loader2,
+  FileBarChart,
 } from "lucide-react";
 import { fetchBranches } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 import ExportMenu from "./ExportMenu";
 
 export default function BranchesPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("all");
@@ -26,6 +30,10 @@ export default function BranchesPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer") {
+      navigate("/dashboard");
+      return;
+    }
     (async () => {
       setLoading(true);
       try {
@@ -34,7 +42,7 @@ export default function BranchesPage() {
       } catch (e) { console.error(e); }
       setLoading(false);
     })();
-  }, []);
+  }, [user?.role]);
 
   return (
     <div className="space-y-6">
@@ -227,6 +235,13 @@ export default function BranchesPage() {
                         className="p-2 text-gray-400 hover:text-navy-900 hover:bg-gray-100 rounded-lg transition-colors"
                       >
                         <Eye className="w-4 h-4" />
+                      </Link>
+                      <Link
+                        to={`/branches/${branch.id}/report`}
+                        title="View Branch Report"
+                        className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                      >
+                        <FileBarChart className="w-4 h-4" />
                       </Link>
                       <button
                         title="Edit"

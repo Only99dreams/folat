@@ -7,9 +7,12 @@ import {
   Eye,
   Filter,
   Loader2,
+  X,
 } from "lucide-react";
-import { fetchLeaveRequests, reviewLeaveRequest } from "../lib/db";
+import { fetchLeaveRequests, reviewLeaveRequest, revokeLeaveRequest, fetchStaffByProfileId } from "../lib/db";
 import { toastSuccess, toastError } from "../lib/toast";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500","bg-pink-600","bg-teal-600"];
 
@@ -50,17 +53,46 @@ const calculateLeaveDays = (startDate: string, endDate: string): number => {
 };
 
 export default function LeaveRequestsPage() {
+  const { user } = useAuth();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const [staffRecordId, setStaffRecordId] = useState<string | null>(null);
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
+
+  const isStaff = user?.role === "staff_member";
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+  const canApprove = !isStaff;
+
+  useEffect(() => {
+    if (isStaff && user?.id) {
+      fetchStaffByProfileId(user.id).then(s => {
+        if (s?.id) setStaffRecordId(s.id);
+      }).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   const loadData = async () => {
     setLoading(true);
     try {
       const filters: any = {};
       if (statusFilter) filters.status = statusFilter;
+      if (isStaff && staffRecordId) filters.staff_id = staffRecordId;
+      if (isRestricted && branchFilterId) filters.branch_id = branchFilterId;
       const data = await fetchLeaveRequests(filters);
       setRequests(typeFilter ? data.filter((r: any) => r.leave_type === typeFilter) : data);
     } catch (err) {
@@ -69,16 +101,29 @@ export default function LeaveRequestsPage() {
     setLoading(false);
   };
 
-  useEffect(() => { loadData(); }, [statusFilter, typeFilter]);
+  useEffect(() => { loadData(); }, [statusFilter, typeFilter, staffRecordId]);
 
   const handleAction = async (id: string, status: "approved" | "rejected") => {
     setReviewing(id);
     try {
-      await reviewLeaveRequest(id, status, "");
+      await reviewLeaveRequest(id, user?.id || "", status, "");
       toastSuccess(`Leave request ${status}`);
       loadData();
     } catch (err: any) {
       toastError(err.message || `Failed to ${status} leave request`);
+    } finally {
+      setReviewing(null);
+    }
+  };
+
+  const handleRevoke = async (id: string) => {
+    setReviewing(id);
+    try {
+      await revokeLeaveRequest(id, user?.id || "");
+      toastSuccess("Leave request revoked");
+      loadData();
+    } catch (err: any) {
+      toastError(err.message || "Failed to revoke leave request");
     } finally {
       setReviewing(null);
     }
@@ -100,7 +145,7 @@ export default function LeaveRequestsPage() {
       </div>
 
       {/* ─── Filters ─── */}
-      <div className="bg-white rounded-xl border border-gray-100 px-4 sm:px-6 py-5">
+      {!isStaff && <div className="bg-white rounded-xl border border-gray-100 px-4 sm:px-6 py-5">
         <div className="flex flex-wrap items-end gap-4">
           {/* Leave Type */}
           <div>
@@ -168,7 +213,7 @@ export default function LeaveRequestsPage() {
             <Filter className="w-4 h-4" />
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* ─── Table ─── */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -179,9 +224,11 @@ export default function LeaveRequestsPage() {
                 <th className="px-6 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
                   Request ID
                 </th>
+                {!isStaff && (
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
                   Staff Name
                 </th>
+                )}
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
                   Leave Type
                 </th>
@@ -201,9 +248,9 @@ export default function LeaveRequestsPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+                <tr><td colSpan={isStaff ? 6 : 7} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
               ) : requests.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400 text-sm">No leave requests found</td></tr>
+                <tr><td colSpan={isStaff ? 6 : 7} className="text-center py-12 text-gray-400 text-sm">No leave requests found</td></tr>
               ) : requests.map((req: any, i: number) => {
                 const staffName = req.staff ? `${req.staff.first_name ?? ""} ${req.staff.last_name ?? ""}`.trim() : "Unknown";
                 const initials = staffName.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2);
@@ -212,12 +259,14 @@ export default function LeaveRequestsPage() {
                 return (
                 <tr key={req.id} className="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
                   <td className="px-6 py-4"><p className="text-sm text-gray-600">{req.id.slice(0,8)}</p></td>
+                  {!isStaff && (
                   <td className="px-4 py-4"><div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0 ${bgColor}`}>{initials}</div><p className="text-sm font-semibold text-navy-900">{staffName}</p></div></td>
+                  )}
                   <td className="px-4 py-4"><span className={`inline-flex px-2.5 py-1 rounded text-[10px] font-bold tracking-wider ${leaveTypeBadge(req.leave_type)}`}>{(req.leave_type || "").charAt(0).toUpperCase() + (req.leave_type || "").slice(1)}</span></td>
                   <td className="px-4 py-4"><p className="text-sm text-gray-600">{req.start_date ? new Date(req.start_date).toLocaleDateString("en-NG",{year:"numeric",month:"short",day:"numeric"}) : "—"}</p></td>
                   <td className="px-4 py-4"><p className="text-sm font-semibold text-navy-900">{leaveDays} days</p></td>
                   <td className="px-4 py-4">{statusDisplay(req.status)}</td>
-                  <td className="px-4 py-4"><div className="flex items-center justify-end gap-1.5">{req.status === "pending" && (<><button onClick={() => handleAction(req.id, "approved")} disabled={reviewing === req.id} className="p-1.5 text-green-600 hover:text-green-700 transition-colors disabled:opacity-50"><CheckCircle2 className="w-5 h-5" /></button><button onClick={() => handleAction(req.id, "rejected")} disabled={reviewing === req.id} className="p-1.5 text-red-500 hover:text-red-600 transition-colors disabled:opacity-50"><XCircle className="w-5 h-5" /></button></>)}<button className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Eye className="w-5 h-5" /></button></div></td>
+                  <td className="px-4 py-4"><div className="flex items-center justify-end gap-1.5">{req.status === "pending" && canApprove && (<><button onClick={() => handleAction(req.id, "approved")} disabled={reviewing === req.id} className="p-1.5 text-green-600 hover:text-green-700 transition-colors disabled:opacity-50"><CheckCircle2 className="w-5 h-5" /></button><button onClick={() => handleAction(req.id, "rejected")} disabled={reviewing === req.id} className="p-1.5 text-red-500 hover:text-red-600 transition-colors disabled:opacity-50"><XCircle className="w-5 h-5" /></button></>)} {req.status === "approved" && (user?.role === "super_admin" || user?.role === "hr_manager") && (<button onClick={() => handleRevoke(req.id)} disabled={reviewing === req.id} className="p-1.5 text-red-500 hover:text-red-600 transition-colors disabled:opacity-50"><X className="w-5 h-5" /></button>)}<button className="p-1.5 text-gray-400 hover:text-navy-900 transition-colors"><Eye className="w-5 h-5" /></button></div></td>
                 </tr>
                 );
               })}

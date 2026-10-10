@@ -10,6 +10,7 @@ import {
   DollarSign,
   MessageSquare,
   FileText,
+  FileSpreadsheet,
   GitBranch,
   ShieldCheck,
   Settings,
@@ -18,11 +19,12 @@ import {
   X,
   LogOut,
   UserCircle,
+  ScrollText,
 } from "lucide-react";
 import { useAuth } from "../auth/useAuth";
 import type { Permission } from "../auth/types";
 
-type NavChild = { label: string; path: string; permission?: Permission };
+type NavChild = { label: string; path: string; permission?: Permission; hideFor?: string[] };
 
 type NavItem = {
   label: string;
@@ -34,6 +36,8 @@ type NavItem = {
 
 const mainMenu: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { label: "My Documents", icon: FileText, path: "/my-documents" },
+  { label: "Code of Conduct", icon: ScrollText, path: "/code-of-conduct" },
 ];
 
 const operations: NavItem[] = [
@@ -65,13 +69,12 @@ const operations: NavItem[] = [
     permission: "loans.view",
     children: [
       { label: "Applications", path: "/loans", permission: "loans.view" },
-      { label: "New Application", path: "/loans/new", permission: "loans.create" },
+      { label: "New Application", path: "/loans/new", permission: "loans.create", hideFor: ["staff_member"] as string[] },
       { label: "Cooperative Loan", path: "/loans/cooperative-request", permission: "loans.create" },
       { label: "Active Loans", path: "/loans/active", permission: "loans.view" },
       { label: "Overdue Loans", path: "/loans/overdue", permission: "loans.view" },
       { label: "Repayments", path: "/loans/repayments", permission: "loans.repayments" },
-      { label: "Record Repayment", path: "/loans/record-repayment", permission: "loans.record_repayment" },
-      { label: "Weekly Tracking", path: "/loans/weekly-tracking", permission: "loans.weekly_tracking" },
+      { label: "Monthly Tracking", path: "/loans/monthly-tracking", permission: "loans.monthly_tracking" },
       { label: "Guarantor Requests", path: "/loans/guarantor-requests", permission: "loans.view" },
     ],
   },
@@ -97,8 +100,10 @@ const management: NavItem[] = [
       { label: "Add Staff", path: "/hr/staff/add", permission: "hr.add_staff" },
       { label: "Leave Requests", path: "/hr/leave-requests", permission: "hr.leave_requests" },
       { label: "Salary Structure", path: "/hr/salary-structure", permission: "hr.salary_structure" },
+      { label: "Salary Management", path: "/hr/salary-management", permission: "hr.salary_structure" },
       { label: "Attendance Log", path: "/hr/attendance", permission: "hr.attendance" },
       { label: "Record Attendance", path: "/hr/attendance/record", permission: "hr.attendance" },
+      { label: "Staff Documents", path: "/hr/staff-documents", permission: "hr.view" },
     ],
   },
   {
@@ -111,6 +116,9 @@ const management: NavItem[] = [
       { label: "Add Expense", path: "/finance/add-expense", permission: "finance.add_expense" },
       { label: "Ledger", path: "/finance/ledger", permission: "finance.ledger" },
       { label: "Fund Requests", path: "/finance/fund-requests", permission: "finance.fund_requests" },
+      { label: "Available Funds", path: "/finance/available-funds", permission: "finance.fund_requests" },
+      { label: "Loan Approvals", path: "/loans", permission: "loans.approve" },
+      { label: "My Documents", path: "/finance/documents", permission: "finance.view" },
     ],
   },
   {
@@ -118,8 +126,9 @@ const management: NavItem[] = [
     icon: GitBranch,
     permission: "branches.view",
     children: [
-      { label: "All Branches", path: "/branches", permission: "branches.view" },
-      { label: "Add Branch", path: "/branches/add", permission: "branches.add" },
+      { label: "All Branches", path: "/branches", permission: "branches.view", hideFor: ["branch_manager", "secretary", "officer"] },
+      { label: "Add Branch", path: "/branches/add", permission: "branches.add", hideFor: ["branch_manager", "secretary", "officer"] },
+      { label: "Branch Assignments", path: "/branches/assignments", permission: "branches.assign_staff" },
     ],
   },
   {
@@ -132,6 +141,7 @@ const management: NavItem[] = [
     ],
   },
   { label: "Reports", icon: FileText, path: "/reports", permission: "reports.view" },
+  { label: "Combined Records", icon: FileSpreadsheet, path: "/reports/combined-records", permission: "records.view_combined" },
 ];
 
 const system: NavItem[] = [
@@ -152,12 +162,13 @@ const system: NavItem[] = [
     children: [
       { label: "General", path: "/settings/general", permission: "settings.general" },
       { label: "Notifications", path: "/settings/notifications", permission: "settings.notifications" },
+      { label: "Loan Rules", path: "/settings/loan-rules", permission: "settings.loan_rules" },
     ],
   },
 ];
 
 /** Filter a NavItem (and its children) based on what the user can see */
-function filterByPermission(items: NavItem[], hasPermission: (p: Permission) => boolean): NavItem[] {
+function filterByPermission(items: NavItem[], hasPermission: (p: Permission) => boolean, role?: string): NavItem[] {
   return items
     .filter((item) => {
       if (!item.permission) return true;
@@ -171,7 +182,10 @@ function filterByPermission(items: NavItem[], hasPermission: (p: Permission) => 
       if (!item.children) return item;
       return {
         ...item,
-        children: item.children.filter((c) => !c.permission || hasPermission(c.permission)),
+        children: item.children.filter((c) => {
+          if (c.hideFor?.includes(role || "")) return false;
+          return !c.permission || hasPermission(c.permission);
+        }),
       };
     })
     .filter((item) => !item.children || item.children.length > 0);
@@ -278,9 +292,21 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
   const { user, logout, hasPermission } = useAuth();
 
   // Filter nav items by current user's permissions
-  const filteredOps = useMemo(() => filterByPermission(operations, hasPermission), [hasPermission]);
-  const filteredMgmt = useMemo(() => filterByPermission(management, hasPermission), [hasPermission]);
-  const filteredSys = useMemo(() => filterByPermission(system, hasPermission), [hasPermission]);
+  const filteredOps = useMemo(() => filterByPermission(operations, hasPermission, user?.role), [hasPermission, user?.role]);
+  const filteredMgmt = useMemo(() => filterByPermission(management, hasPermission, user?.role), [hasPermission, user?.role]);
+  const filteredSys = useMemo(() => filterByPermission(system, hasPermission, user?.role), [hasPermission, user?.role]);
+
+  // Lock body scroll when sidebar is open on mobile
+  useEffect(() => {
+    if (open) {
+      document.body.style.overflow = "hidden";
+    } else {
+      document.body.style.overflow = "";
+    }
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
 
   // Close sidebar on route change (mobile)
   useEffect(() => {
@@ -298,7 +324,18 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       {open && (
         <div
           className="fixed inset-0 bg-black/40 z-40 lg:hidden"
-          onClick={onClose}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          role="button"
+          aria-label="Close sidebar"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              onClose();
+            }
+          }}
         />
       )}
 
@@ -330,10 +367,17 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
             className="block px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <UserCircle className="w-4 h-4 text-gray-400 shrink-0" />
+              {user.avatarUrl ? (
+                <img src={user.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="w-8 h-8 rounded-full bg-navy-900 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                  {user.avatar?.[0] ?? "U"}
+                </div>
+              )}
               <p className="text-sm font-semibold text-navy-900 truncate">{user.name}</p>
             </div>
-            <p className="text-[10px] text-gray-400 uppercase tracking-wide ml-6">View Profile</p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide ml-10">ID: {user.id.slice(0, 8).toUpperCase()}</p>
+            <p className="text-[10px] text-gray-400 uppercase tracking-wide ml-10">View Profile</p>
           </NavLink>
         )}
 

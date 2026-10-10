@@ -1,30 +1,45 @@
 import { useState, useEffect } from "react";
 import { FileEdit, Loader2, Save, X } from "lucide-react";
 import { fetchStaff, updateStaff } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 export default function SalaryStructurePage() {
+  const { user } = useAuth();
   const [staffList, setStaffList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
-  /* ── Edit state ── */
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
   const [editing, setEditing] = useState<any>(null);
-  const [saving, setSaving] = useState(false);
-  const [editError, setEditError] = useState("");
   const [editForm, setEditForm] = useState({
     basic_salary: 0,
     housing_allowance: 0,
     transport_allowance: 0,
     other_allowances: 0,
   });
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState("");
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     loadStaff();
-  }, []);
+  }, [branchFilterId]);
 
   const loadStaff = async () => {
     setLoading(true);
     try {
-      const data = await fetchStaff();
+      const data = await fetchStaff({ branch_id: branchFilterId || undefined, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined });
       setStaffList(data);
     } catch {}
     setLoading(false);

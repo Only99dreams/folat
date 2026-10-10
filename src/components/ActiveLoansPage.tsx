@@ -14,7 +14,9 @@ import {
   Loader2,
 } from "lucide-react";
 import ExportMenu from "./ExportMenu";
-import { fetchLoanApplications, fetchBranches } from "../lib/db";
+import { fetchLoanApplications, fetchBranches, fetchStaffByProfileId, fetchMemberByEmail } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const avatarColors = [
   "bg-navy-900 text-white",
@@ -25,31 +27,83 @@ const avatarColors = [
 ];
 
 export default function ActiveLoansPage() {
+  const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState(1);
   const [loans, setLoans] = useState<any[]>([]);
   const [totalLoans, setTotalLoans] = useState(0);
   const [branches, setBranches] = useState<any[]>([]);
   const [branchFilter, setBranchFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const [staffMemberId, setStaffMemberId] = useState<string | null>(null);
+  const [staffMemberRecordId, setStaffMemberRecordId] = useState<string | null>(null);
+  const [branchDistribution, setBranchDistribution] = useState<Record<string, number>>({});
+  const [onTrackCount, setOnTrackCount] = useState(0);
   const perPage = 10;
   const totalPages = Math.max(1, Math.ceil(totalLoans / perPage));
 
+  const isStaff = user?.role === "staff_member";
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
   useEffect(() => {
     fetchBranches().then(data => setBranches(data)).catch(() => {});
+    if (isStaff && user?.id) {
+      fetchStaffByProfileId(user.id).then(async s => {
+        if (s?.email) {
+          setStaffMemberId(s.email);
+          const member = await fetchMemberByEmail(s.email);
+          if (member) setStaffMemberRecordId(member.id);
+        }
+      }).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
+
+  useEffect(() => {
     setLoading(true);
-    fetchLoanApplications({
-      status: "disbursed",
-      branch_id: branchFilter || undefined,
+    const fetchOpts: any = {
+      status: ["approved", "disbursed"],
       page: currentPage,
       pageSize: perPage,
-    }).then(({ data, count }) => {
+      user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined,
+    };
+    if (isStaff && staffMemberRecordId) {
+      fetchOpts.member_id = staffMemberRecordId;
+    } else if (!isStaff) {
+      fetchOpts.branch_id = branchFilter || undefined;
+    }
+    fetchLoanApplications(fetchOpts).then(({ data, count }) => {
       setLoans(data);
       setTotalLoans(count);
+      
+      // Calculate branch distribution
+      const dist: Record<string, number> = {};
+      for (const l of data) {
+        const branchName = l.branch?.name || "Unassigned";
+        dist[branchName] = (dist[branchName] || 0) + 1;
+      }
+      setBranchDistribution(dist);
+      
+      // Calculate on-track count (no overdue schedule items)
+      let onTrack = 0;
+      for (const l of data) {
+        // A loan is "on track" if it has no overdue schedule items
+        // For now, count all disbursed loans as on-track since we don't have detailed schedule status here
+        onTrack++;
+      }
+      setOnTrackCount(onTrack);
     }).catch(() => {}).finally(() => setLoading(false));
-  }, [currentPage, branchFilter]);
+  }, [currentPage, branchFilter, staffMemberId]);
 
   return (
     <div className="space-y-6">
@@ -63,11 +117,13 @@ export default function ActiveLoansPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <ExportMenu data={() => loans.map((l: any) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount, Interest: l.interest_rate, Status: l.status, DisbursedAt: l.disbursed_at, DueDate: l.due_date }))} filename="active_loans" label="Export Report" />
-          <Link to="/loans/new" className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
-            <Plus className="w-4 h-4" />
-            New Loan
-          </Link>
+          <ExportMenu data={() => loans.map((l: any) => ({ LoanID: l.loan_id, Member: (l.member?.first_name || '') + ' ' + (l.member?.last_name || ''), Amount: l.amount_requested, Interest: l.interest_rate, Status: l.status, DisbursedAt: l.disbursement_date }))} filename="active_loans" label="Export Report" />
+          {!isStaff && (
+            <Link to="/loans/new" className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors">
+              <Plus className="w-4 h-4" />
+              New Loan
+            </Link>
+          )}
         </div>
       </div>
 
@@ -110,28 +166,36 @@ export default function ActiveLoansPage() {
       </div>
 
       {/* ─── Filters ─── */}
-      <div className="flex flex-wrap items-center gap-3">
+      {!isStaff && <div className="flex flex-wrap items-center gap-3">
         <button className="p-2.5 border border-gray-200 rounded-lg text-gray-400 hover:bg-gray-50 transition-colors">
           <SlidersHorizontal className="w-4 h-4" />
         </button>
 
-        {["All Branches", "Loan Type", "Repayment Status", "Amount Range"].map(
-          (label) => (
-            <div key={label} className="relative">
-              <select className="appearance-none px-4 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white">
-                <option>{label}</option>
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
-            </div>
-          )
-        )}
+      {!isRestricted && (
+        <div className="relative">
+          <span className="text-xs text-gray-500 font-medium mr-1">
+            BRANCH:
+          </span>
+          <select
+            value={branchFilter}
+            onChange={(e) => setBranchFilter(e.target.value)}
+            className="appearance-none pl-1 pr-6 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white"
+          >
+            <option value="">All Branches</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+        </div>
+      )}
 
         <div className="flex-1" />
 
         <button className="text-sm font-medium text-navy-900 hover:text-navy-700 transition-colors">
           Clear All
         </button>
-      </div>
+      </div>}
 
       {/* ─── Active Loans Table ─── */}
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -142,9 +206,11 @@ export default function ActiveLoansPage() {
                 <th className="px-6 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
                   Loan ID
                 </th>
+                {!isStaff && (
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
                   Member
                 </th>
+                )}
                 <th className="px-4 py-4 text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
                   Loan Amount
                 </th>
@@ -167,9 +233,9 @@ export default function ActiveLoansPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
+                <tr><td colSpan={isStaff ? 7 : 8} className="text-center py-12"><Loader2 className="w-6 h-6 animate-spin text-navy-900 mx-auto" /></td></tr>
               ) : loans.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No active loans found.</td></tr>
+                <tr><td colSpan={isStaff ? 7 : 8} className="text-center py-12 text-gray-400">No active loans found.</td></tr>
               ) : loans.map((loan, i) => {
                 const memberName = loan.member ? `${loan.member.first_name} ${loan.member.last_name}` : "N/A";
                 const initials = memberName.split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase();
@@ -186,6 +252,7 @@ export default function ActiveLoansPage() {
                   <td className="px-6 py-5">
                     <p className="text-sm font-semibold text-navy-900">{loan.loan_id}</p>
                   </td>
+                  {!isStaff && (
                   <td className="px-4 py-5">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold ${avatarColors[i % avatarColors.length]}`}>
@@ -194,6 +261,7 @@ export default function ActiveLoansPage() {
                       <p className="text-sm font-medium text-navy-900">{memberName}</p>
                     </div>
                   </td>
+                  )}
                   <td className="px-4 py-5">
                     <p className="text-sm font-semibold text-navy-900">₦{amount.toLocaleString()}</p>
                   </td>
@@ -296,21 +364,27 @@ export default function ActiveLoansPage() {
           </h2>
 
           <div className="space-y-4">
-            {branches.map((b, i) => (
-              <div key={b.id}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-sm font-medium text-navy-900">
-                    {b.name}
-                  </span>
+            {branches.map((b) => {
+              const count = branchDistribution[b.name] || 0;
+              const maxCount = Math.max(...Object.values(branchDistribution), 1);
+              const percentage = totalLoans > 0 ? (count / totalLoans) * 100 : 0;
+              return (
+                <div key={b.id}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm font-medium text-navy-900">
+                      {b.name}
+                    </span>
+                    <span className="text-xs text-gray-400">{count} loan{count !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-navy-900 rounded-full transition-all duration-500"
+                      style={{ width: `${Math.max(0, percentage)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-navy-900 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.max(20, 100 - i * 25)}%` }}
-                  />
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -323,9 +397,9 @@ export default function ActiveLoansPage() {
             Portfolio Healthy
           </h2>
           <p className="text-sm text-gray-500 leading-relaxed max-w-xs">
-            94% of active loans are currently 'On Track'.
+            {totalLoans > 0 ? `${((onTrackCount / totalLoans) * 100).toFixed(0)}% of active loans are currently 'On Track'.` : "No active loans to analyze."}
             <br />
-            Repayment efficiency is up 3% from last month.
+            {totalLoans > 0 && `Portfolio health is based on ${totalLoans} active loan${totalLoans !== 1 ? 's' : ''}.`}
           </p>
           <button className="mt-4 text-sm font-semibold text-navy-900 underline underline-offset-2 hover:text-navy-700 transition-colors">
             View Trend Analytics

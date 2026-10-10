@@ -19,7 +19,7 @@ import { supabase } from "../lib/supabase";
 import { uploadFile } from "../lib/db";
 
 export default function UserProfilePage() {
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const navigate = useNavigate();
 
   /* ─── Form state ─── */
@@ -106,7 +106,8 @@ export default function UserProfilePage() {
     if (error) {
       setMessage({ type: "error", text: error.message });
     } else {
-      setMessage({ type: "success", text: "Profile updated successfully. Changes will reflect on next login." });
+      setMessage({ type: "success", text: "Profile updated successfully." });
+      refreshProfile();
     }
 
     setSaving(false);

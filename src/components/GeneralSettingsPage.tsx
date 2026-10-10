@@ -45,6 +45,10 @@ export default function GeneralSettingsPage() {
     language: "English",
     primaryColor: "#109050",
     secondaryColor: "#1a2744",
+    annualLeaveDays: "21",
+    sickLeaveDays: "10",
+    casualLeaveDays: "5",
+    maternityLeaveDays: "90",
   });
 
   useEffect(() => {
@@ -367,6 +371,36 @@ export default function GeneralSettingsPage() {
                   <div className="w-10 h-10 rounded-lg border border-gray-200" style={{ backgroundColor: form.secondaryColor }} />
                   <input type="text" value={form.secondaryColor} onChange={(e) => update("secondaryColor", e.target.value)} className="flex-1 px-4 py-3 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Leave Settings */}
+          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-green-600" />
+                <h2 className="text-[11px] tracking-[0.12em] uppercase font-bold text-navy-900">
+                  Leave Settings
+                </h2>
+              </div>
+            </div>
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-2">Annual Leave Days</label>
+                <input type="number" value={form.annualLeaveDays} onChange={(e) => update("annualLeaveDays", e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-2">Sick Leave Days</label>
+                <input type="number" value={form.sickLeaveDays} onChange={(e) => update("sickLeaveDays", e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-2">Casual Leave Days</label>
+                <input type="number" value={form.casualLeaveDays} onChange={(e) => update("casualLeaveDays", e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-2">Maternity Leave Days</label>
+                <input type="number" value={form.maternityLeaveDays} onChange={(e) => update("maternityLeaveDays", e.target.value)} className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent" />
               </div>
             </div>
           </div>

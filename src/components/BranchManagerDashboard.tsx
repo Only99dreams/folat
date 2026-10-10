@@ -16,8 +16,9 @@ import {
   UserCheck,
   Loader2,
   Settings,
+  Wallet,
 } from "lucide-react";
-import { fetchAuditLog, fetchAttendance } from "../lib/db";
+import { fetchAuditLog, fetchAttendance, getTotalAvailableFunds } from "../lib/db";
 
 export default function BranchManagerDashboard() {
   const { user } = useAuth();
@@ -36,48 +37,93 @@ export default function BranchManagerDashboard() {
       setLoading(true);
 
       // Resolve branch ID from user's profile branch field
+      let resolvedBranchId: string | null = null;
       if (user?.branch) {
         const { data: branchData } = await supabase
           .from("branches")
           .select("id")
           .ilike("name", user.branch)
-          .single();
-        if (branchData?.id) setBranchId(branchData.id);
+          .maybeSingle();
+        if (branchData?.id) {
+          resolvedBranchId = branchData.id;
+          setBranchId(branchData.id);
+        }
       }
 
-      // Fetch branch-specific stats
+      const today = new Date().toISOString().split("T")[0];
+
+      // Fetch branch-specific stats using resolved branch ID directly
       let membersQuery = supabase.from("members").select("id").eq("status", "active");
-      let savingsQuery = supabase.from("savings_accounts").select("balance");
-      let loansQuery = supabase.from("loan_applications").select("id").eq("status", "approved");
+      let loansQuery = supabase.from("loan_applications").select("id, status, amount_approved").in("status", ["approved", "disbursed", "active"]);
       let staffQuery = supabase.from("staff").select("id").eq("employment_status", "active");
+      let pendingLoansQuery = supabase.from("loan_applications").select("id").eq("status", "pending");
 
-      if (branchId) {
-        membersQuery = membersQuery.eq("branch_id", branchId);
-        savingsQuery = savingsQuery.eq("member.branch_id", branchId);
-        loansQuery = loansQuery.eq("branch_id", branchId);
-        staffQuery = staffQuery.eq("branch_id", branchId);
+      if (resolvedBranchId) {
+        membersQuery = membersQuery.eq("branch_id", resolvedBranchId);
+        loansQuery = loansQuery.eq("branch_id", resolvedBranchId);
+        staffQuery = staffQuery.eq("branch_id", resolvedBranchId);
+        pendingLoansQuery = pendingLoansQuery.eq("branch_id", resolvedBranchId);
       }
 
-      const [membersRes, savingsRes, loansRes, staffRes, auditRes, attRecords] = await Promise.all([
+      const [membersRes, loansRes, staffRes, pendingLoansRes] = await Promise.all([
         membersQuery,
-        savingsQuery,
         loansQuery,
         staffQuery,
-        fetchAuditLog({ page: 1, pageSize: 5 }),
-        fetchAttendance({ date: new Date().toISOString().slice(0, 10) }),
+        pendingLoansQuery,
       ]);
 
-      const totalSavings = (savingsRes.data ?? []).reduce(
-        (sum: number, acc: any) => sum + Number(acc.balance || 0),
-        0
-      );
+      // Get member IDs for this branch to filter savings
+      let totalSavings = 0;
+      if (resolvedBranchId) {
+        const { data: branchMembers } = await supabase
+          .from("members")
+          .select("id")
+          .eq("branch_id", resolvedBranchId);
+        const memberIds = (branchMembers ?? []).map((m: any) => m.id);
+        if (memberIds.length > 0) {
+          const { data: savingsRes } = await supabase
+            .from("savings_accounts")
+            .select("balance")
+            .in("member_id", memberIds);
+          totalSavings = (savingsRes ?? []).reduce((sum: number, a: any) => sum + Number(a.balance || 0), 0);
+        }
+      } else {
+        const { data: savingsRes } = await supabase.from("savings_accounts").select("balance");
+        totalSavings = (savingsRes ?? []).reduce((sum: number, a: any) => sum + Number(a.balance || 0), 0);
+      }
+
+      // Get available funds
+      let availableFunds = 0;
+      try {
+        const funds = await getTotalAvailableFunds();
+        if (resolvedBranchId) {
+          const { data: branchFunds } = await supabase
+            .from("available_funds")
+            .select("amount")
+            .eq("branch_id", resolvedBranchId);
+          availableFunds = (branchFunds ?? []).reduce((sum: number, f: any) => sum + Number(f.amount || 0), 0);
+        } else {
+          availableFunds = funds;
+        }
+      } catch {}
+
+      const pendingLoans = pendingLoansRes.data?.length ?? 0;
+
+      // Fetch attendance filtered by branch
+      const attFilters: any = { date: today };
+      if (resolvedBranchId) attFilters.branch_id = resolvedBranchId;
+      const attRecords = await fetchAttendance(attFilters);
+
+      // Fetch audit log filtered by branch
+      const auditRes = await fetchAuditLog({ page: 1, pageSize: 5, branch_id: resolvedBranchId || undefined });
 
       setStats({
         totalMembers: membersRes.data?.length ?? 0,
         totalSavings,
         activeLoans: loansRes.data?.length ?? 0,
         totalStaff: staffRes.data?.length ?? 0,
-        pendingLoans: 0, // Will be calculated from loan_applications
+        pendingLoans,
+        availableFunds,
       });
       setActivity(auditRes.data);
       setAttendance(attRecords);
@@ -96,9 +142,11 @@ export default function BranchManagerDashboard() {
 
   const statCards = stats ? [
     { label: "Branch Members", value: stats.totalMembers.toLocaleString(), icon: Users, color: "text-blue-600", bg: "bg-blue-50" },
+    { label: "Available Funds", value: fmt(stats.availableFunds), icon: Wallet, color: "text-emerald-600", bg: "bg-emerald-50" },
     { label: "Active Savings", value: fmt(stats.totalSavings), icon: PiggyBank, color: "text-green-600", bg: "bg-green-50" },
     { label: "Active Loans", value: String(stats.activeLoans), icon: Landmark, color: "text-amber-600", bg: "bg-amber-50" },
-    { label: "Total Staff", value: String(stats.totalStaff), icon: AlertTriangle, color: "text-red-600", bg: "bg-red-50" },
+    { label: "Pending Loans", value: String(stats.pendingLoans), icon: ClipboardCheck, color: "text-red-600", bg: "bg-red-50" },
+    { label: "Total Staff", value: String(stats.totalStaff), icon: UserCheck, color: "text-purple-600", bg: "bg-purple-50" },
   ] : [];
 
   const pendingTasks = [
@@ -120,12 +168,11 @@ export default function BranchManagerDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Link to={`/branches`} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50">
-            <FileBarChart className="w-4 h-4" /> Reports
-          </Link>
-          <Link to={`/branch-details`} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700">
-            <Settings className="w-4 h-4" /> Branch Control
-          </Link>
+          {branchId && (
+            <Link to={`/branches/${branchId}`} className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-medium hover:bg-green-700">
+              <Settings className="w-4 h-4" /> Branch Control
+            </Link>
+          )}
         </div>
       </div>
 

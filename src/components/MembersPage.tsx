@@ -6,6 +6,7 @@ import {
   Eye,
   Pencil,
   KeyRound,
+  Trash2,
   Users,
   UserPlus,
   ChevronLeft,
@@ -13,8 +14,9 @@ import {
   Calendar,
   Loader2,
 } from "lucide-react";
-import { fetchMembers, fetchBranches, sendMemberPasswordReset } from "../lib/db";
+import { fetchMembers, fetchBranches, sendMemberPasswordReset, deleteMember } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import { confirmToast, toastError, toastSuccess } from "../lib/toast";
 
 const statusBadge = (status: Member["status"]) => {
@@ -73,6 +75,7 @@ export default function MembersPage() {
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [memberTypeFilter, setMemberTypeFilter] = useState("");
   const [loanFilter, setLoanFilter] = useState("All Loans");
   const [currentPage, setCurrentPage] = useState(1);
   const [members, setMembers] = useState<any[]>([]);
@@ -80,9 +83,23 @@ export default function MembersPage() {
   const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [resettingPassword, setResettingPassword] = useState<string | null>(null);
+  const [deletingMember, setDeletingMember] = useState<string | null>(null);
   const perPage = 20;
   const canResetPassword = user?.role === "super_admin";
   const totalPages = Math.max(1, Math.ceil(totalMembers / perPage));
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   const loadMembers = useCallback(async () => {
     setLoading(true);
@@ -91,8 +108,10 @@ export default function MembersPage() {
         search: search || undefined,
         branch_id: branchFilter || undefined,
         status: statusFilter || undefined,
+        member_type: memberTypeFilter || undefined,
         page: currentPage,
         pageSize: perPage,
+        user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined,
       });
       setMembers(data);
       setTotalMembers(count);
@@ -101,7 +120,7 @@ export default function MembersPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, branchFilter, statusFilter, currentPage]);
+  }, [search, branchFilter, statusFilter, memberTypeFilter, currentPage, user]);
 
   useEffect(() => {
     loadMembers();
@@ -114,7 +133,7 @@ export default function MembersPage() {
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, branchFilter, statusFilter]);
+  }, [search, branchFilter, statusFilter, memberTypeFilter]);
 
   const getInitials = (first: string, last: string) =>
     `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase();
@@ -134,6 +153,23 @@ export default function MembersPage() {
       toastError(err?.message || "Failed to send password reset email.");
     } finally {
       setResettingPassword(null);
+    }
+  };
+
+  const handleDeleteMember = async (memberId: string, memberName: string) => {
+    if (user?.role !== "super_admin") return;
+    const confirmed = await confirmToast(`Permanently delete ${memberName} and ALL their data (savings, loans, transactions)? This cannot be undone.`);
+    if (!confirmed) return;
+
+    setDeletingMember(memberId);
+    try {
+      await deleteMember(memberId);
+      toastSuccess(`${memberName} has been permanently deleted.`);
+      loadMembers();
+    } catch (err: any) {
+      toastError(err?.message || "Failed to delete member.");
+    } finally {
+      setDeletingMember(null);
     }
   };
 
@@ -203,24 +239,26 @@ export default function MembersPage() {
           </div>
 
           {/* Branch */}
-          <div>
-            <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">
-              Branch
-            </label>
-            <div className="relative">
-              <select
-                value={branchFilter}
-                onChange={(e) => setBranchFilter(e.target.value)}
-                className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-              >
-                <option value="">All Branches</option>
-                {branches.map((b: any) => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          {!isRestricted && (
+            <div>
+              <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">
+                Branch
+              </label>
+              <div className="relative">
+                <select
+                  value={branchFilter}
+                  onChange={(e) => setBranchFilter(e.target.value)}
+                  className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+                >
+                  <option value="">All Branches</option>
+                  {branches.map((b: any) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Status */}
           <div>
@@ -237,6 +275,25 @@ export default function MembersPage() {
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="suspended">Suspended</option>
+              </select>
+              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Member Type */}
+          <div>
+            <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">
+              Member Type
+            </label>
+            <div className="relative">
+              <select
+                value={memberTypeFilter}
+                onChange={(e) => setMemberTypeFilter(e.target.value)}
+                className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+              >
+                <option value="">All Types</option>
+                <option value="cooperative">Cooperative</option>
+                <option value="external">External</option>
               </select>
               <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
@@ -405,6 +462,16 @@ export default function MembersPage() {
                           className="p-2 text-gray-400 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40"
                         >
                           {resettingPassword === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <KeyRound className="w-4 h-4" />}
+                        </button>
+                      )}
+                      {canResetPassword && (
+                        <button
+                          onClick={() => handleDeleteMember(m.id, `${m.first_name} ${m.last_name}`)}
+                          disabled={deletingMember === m.id}
+                          title="Delete Member"
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+                        >
+                          {deletingMember === m.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                         </button>
                       )}
                     </div>

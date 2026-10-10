@@ -7,10 +7,12 @@ import {
   UploadCloud,
   Loader2,
 } from "lucide-react";
-import { fetchStaff, createLeaveRequest, uploadFile } from "../lib/db";
+import { fetchStaff, createLeaveRequest, uploadFile, fetchStaffByProfileId } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 export default function LeaveRequestFormPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [staffList, setStaffList] = useState<any[]>([]);
   const [staffSearch, setStaffSearch] = useState("");
   const [selectedStaff, setSelectedStaff] = useState<any>(null);
@@ -25,9 +27,23 @@ export default function LeaveRequestFormPage() {
     reason: "",
   });
 
-  useEffect(() => { fetchStaff().then(setStaffList).catch(() => {}); }, []);
+  const isStaff = user?.role === "staff_member";
 
-  const filteredStaff = staffSearch.length >= 2
+  useEffect(() => {
+    if (isStaff && user?.id) {
+      fetchStaffByProfileId(user.id).then(s => {
+        if (s) {
+          setSelectedStaff(s);
+          setStaffSearch(`${s.first_name} ${s.last_name} (${s.staff_id || ""})`);
+        }
+      }).catch(() => {});
+    } else {
+      const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
+      fetchStaff({ user: userObj }).then(setStaffList).catch(() => {});
+    }
+  }, []);
+
+  const filteredStaff = staffSearch.length >= 2 && !isStaff
     ? staffList.filter(s => `${s.first_name} ${s.last_name} ${s.staff_id || ""}`.toLowerCase().includes(staffSearch.toLowerCase())).slice(0, 8)
     : [];
 
@@ -133,10 +149,11 @@ export default function LeaveRequestFormPage() {
                 value={selectedStaff ? `${selectedStaff.first_name} ${selectedStaff.last_name} (${selectedStaff.staff_id || ""})` : staffSearch}
                 onChange={(e) => { setStaffSearch(e.target.value); setSelectedStaff(null); setShowDropdown(true); }}
                 onFocus={() => setShowDropdown(true)}
-                placeholder="Search staff by name or ID..."
-                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm text-navy-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                placeholder={isStaff ? "Auto-filled from your profile" : "Search staff by name or ID..."}
+                readOnly={isStaff}
+                className={`w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm text-navy-900 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent ${isStaff ? "bg-gray-50 cursor-not-allowed" : ""}`}
               />
-              {showDropdown && filteredStaff.length > 0 && (
+              {!isStaff && showDropdown && filteredStaff.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
                   {filteredStaff.map(s => (
                     <button key={s.id} type="button" onClick={() => { setSelectedStaff(s); setShowDropdown(false); setStaffSearch(""); }}

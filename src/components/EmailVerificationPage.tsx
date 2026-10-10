@@ -18,29 +18,80 @@ export default function EmailVerificationPage() {
   const email = (location.state as { email?: string })?.email ?? "";
 
   const [digits, setDigits] = useState<string[]>(Array(CODE_LENGTH).fill(""));
+  const inputRefs = useRef<Array<HTMLInputElement | null>>(Array(CODE_LENGTH).fill(null));
   const [error, setError] = useState("");
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const VERIFICATION_TOKEN_KEY = "folat_verification_token";
 
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
-
-  // Auto-focus first input on mount
+  // Send verification email when component mounts or email changes
   useEffect(() => {
-    inputRefs.current[0]?.focus();
-  }, []);
+    if (email) {
+      const sendVerificationEmail = async () => {
+        const { error } = await supabase.auth.resend({
+          type: "signup",
+          email,
+        });
+        if (error) {
+          setError(error.message);
+        } else {
+          setResendCooldown(60); // Start cooldown
+        }
+      };
 
-  // Resend cooldown timer
+      sendVerificationEmail();
+    }
+  }, [email]);
+
+  // Handle resend cooldown countdown
   useEffect(() => {
-    if (resendCooldown <= 0) return;
-    const timer = setTimeout(() => setResendCooldown((c) => c - 1), 1000);
-    return () => clearTimeout(timer);
+    if (resendCooldown > 0) {
+      const timer = setTimeout(() => {
+        setResendCooldown(prev => prev - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
   }, [resendCooldown]);
 
-  // Redirect if no email in state
-  useEffect(() => {
-    if (!email) navigate("/signup", { replace: true });
-  }, [email, navigate]);
+  // Generate a random 6-digit verification code
+  const generateVerificationCode = (): string => {
+    let code = "";
+    for (let i = 0; i < CODE_LENGTH; i++) {
+      code += Math.floor(Math.random() * 10);
+    }
+    return code;
+  };
+
+  // Hash a token for storage (simple hash for demo - in production use crypto)
+  const hashToken = (token: string): string => {
+    let hash = 0;
+    for (let i = 0; i < token.length; i++) {
+      const char = token.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString();
+  };
+
+  // Store verification token hash in localStorage
+  const storeVerificationToken = (token: string): void => {
+    const tokenHash = hashToken(token);
+    localStorage.setItem(VERIFICATION_TOKEN_KEY, tokenHash);
+  };
+
+  // Retrieve and verify token from localStorage
+  const verifyTokenFromStorage = (token: string): boolean => {
+    const storedHash = localStorage.getItem(VERIFICATION_TOKEN_KEY);
+    if (!storedHash) return false;
+    const tokenHash = hashToken(token);
+    return storedHash === tokenHash;
+  };
+
+  // Clear verification token from localStorage
+  const clearVerificationToken = (): void => {
+    localStorage.removeItem(VERIFICATION_TOKEN_KEY);
+  };
 
   const handleChange = (index: number, value: string) => {
     const digit = value.replace(/\D/g, "").slice(-1);

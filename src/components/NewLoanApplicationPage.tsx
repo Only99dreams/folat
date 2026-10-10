@@ -54,7 +54,8 @@ export default function NewLoanApplicationPage() {
     if (q.length < 2) { setSearchResults([]); return; }
     setSearching(true);
     try {
-      const { data } = await fetchMembers({ search: q, pageSize: 5 });
+      const userObj = profile ? { id: profile.id, role: profile.role, branch: profile.branch } : undefined;
+      const { data } = await fetchMembers({ search: q, pageSize: 5, user: userObj });
       setSearchResults(data);
     } catch { setSearchResults([]); }
     setSearching(false);

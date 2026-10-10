@@ -17,6 +17,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import heroImg from "../assets/hero.png";
 import { useAuth } from "../auth/AuthContext";
+import { getEmailValidationError } from "../lib/emailValidation";
 
 export default function SignupPage() {
   const { signup } = useAuth();
@@ -36,6 +37,14 @@ export default function SignupPage() {
     e.preventDefault();
     setError("");
 
+// Email validation - only FOLAT emails allowed (with superadmin exception)
+    const emailTrim = email.trim().toLowerCase();
+    const validationError = getEmailValidationError(emailTrim);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
@@ -50,11 +59,11 @@ export default function SignupPage() {
     }
 
     setSubmitting(true);
-    const result = await signup(email, password, fullName, phone || undefined);
+    const result = await signup(emailTrim, password, fullName, phone || undefined);
     setSubmitting(false);
 
     if (result.success) {
-      navigate("/verify-email", { state: { email } });
+      navigate("/check-email", { state: { email: emailTrim } });
     } else {
       setError(result.error ?? "Signup failed. Please try again.");
     }

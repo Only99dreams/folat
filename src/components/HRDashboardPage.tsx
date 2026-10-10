@@ -17,9 +17,12 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchStaff, fetchLeaveRequests, fetchAttendance, fetchBranches } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import ExportMenu from "./ExportMenu";
 
 export default function HRDashboardPage() {
+  const { user } = useAuth();
   const [totalStaff, setTotalStaff] = useState(0);
   const [presentToday, setPresentToday] = useState(0);
   const [absentToday, setAbsentToday] = useState(0);
@@ -29,16 +32,30 @@ export default function HRDashboardPage() {
   const [recentAttendance, setRecentAttendance] = useState<any[]>([]);
   const [branchPerformance, setBranchPerformance] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
         const [staff, leaves, approved, attendance, branches] = await Promise.all([
-          fetchStaff(),
-          fetchLeaveRequests({ status: "pending" }),
-          fetchLeaveRequests({ status: "approved" }),
-          fetchAttendance(),
+          fetchStaff({ branch_id: branchFilterId || undefined, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
+          fetchLeaveRequests({ status: "pending", branch_id: branchFilterId || undefined, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
+          fetchLeaveRequests({ status: "approved", branch_id: branchFilterId || undefined, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
+          fetchAttendance(undefined, branchFilterId || undefined),
           fetchBranches(),
         ]);
         setTotalStaff(staff.length);

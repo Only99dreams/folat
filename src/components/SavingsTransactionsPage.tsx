@@ -14,6 +14,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchSavingsTransactions, fetchBranches } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const typeBadge = (type: string) => {
   switch (type) {
@@ -39,7 +41,9 @@ const typeBadge = (type: string) => {
 };
 
 export default function SavingsTransactionsPage() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -47,21 +51,35 @@ export default function SavingsTransactionsPage() {
   const [totalTransactions, setTotalTransactions] = useState(0);
   const [branches, setBranches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   const perPage = 20;
   const totalPages = Math.max(1, Math.ceil(totalTransactions / perPage));
 
   useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
 
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
+
   const loadTransactions = async () => {
     setLoading(true);
     try {
       const { data, count } = await fetchSavingsTransactions({
-        search: search || undefined,
+        search: appliedSearch || undefined,
         branch_id: branchFilter || undefined,
         type: typeFilter || undefined,
         page: currentPage,
         pageSize: perPage,
+        user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined,
       });
       setTransactions(data);
       setTotalTransactions(count);
@@ -69,9 +87,9 @@ export default function SavingsTransactionsPage() {
     setLoading(false);
   };
 
-  useEffect(() => { loadTransactions(); }, [currentPage]);
+  useEffect(() => { loadTransactions(); }, [currentPage, appliedSearch, branchFilter, typeFilter]);
 
-  const handleApplyFilters = () => { setCurrentPage(1); loadTransactions(); };
+  const handleApplyFilters = () => { setCurrentPage(1); setAppliedSearch(search); };
 
   return (
     <div className="space-y-6">
@@ -106,31 +124,33 @@ export default function SavingsTransactionsPage() {
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
+            <input
             type="text"
-            placeholder="Search by Name, Member ID, or Transaction ID (TxID)..."
+            placeholder="Search by Name, Member ID, or Transaction ID — press Enter to search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleApplyFilters(); }}
             className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900"
           />
         </div>
 
         {/* Filter Row */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Branch */}
-          <div className="relative flex-1 min-w-[140px]">
-            <select
-              value={branchFilter}
-              onChange={(e) => setBranchFilter(e.target.value)}
-              className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-            >
-              <option value="">All Branches</option>
-              {branches.map((b: any) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-          </div>
+          {!isRestricted && (
+            <div className="relative flex-1 min-w-[140px]">
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+              >
+                <option value="">All Branches</option>
+                {branches.map((b: any) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          )}
 
           {/* Transaction Type */}
           <div className="relative flex-1 min-w-[140px]">

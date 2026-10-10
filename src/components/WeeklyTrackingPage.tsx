@@ -16,6 +16,7 @@ import {
 import ExportMenu from "./ExportMenu";
 import { fetchWeeklyPayments, recordWeeklyPayment, fetchGroups, fetchBranches, fetchMembers } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 /* ── Week helpers ── */
 function getWeekNumber(d: Date): number {
@@ -83,6 +84,7 @@ export default function WeeklyTrackingPage() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [currentPage, setCurrentPage] = useState(1);
   const perPage = 50;
+  const isRestricted = profile?.role === "branch_manager" || profile?.role === "secretary" || profile?.role === "officer";
 
   // Record modal
   const [showRecord, setShowRecord] = useState(false);
@@ -98,6 +100,18 @@ export default function WeeklyTrackingPage() {
   const [recordNotes, setRecordNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isRestricted || !profile?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", profile.branch)
+        .single();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, profile?.branch]);
 
   const loadPayments = useCallback(async () => {
     setLoading(true);
@@ -141,7 +155,8 @@ export default function WeeklyTrackingPage() {
     setMemberSearch(q);
     if (q.length < 2) { setMemberResults([]); return; }
     try {
-      const { data } = await fetchMembers({ search: q, pageSize: 5 });
+      const userObj = profile ? { id: profile.id, role: profile.role, branch: profile.branch } : undefined;
+      const { data } = await fetchMembers({ search: q, pageSize: 5, user: userObj });
       setMemberResults(data);
     } catch { setMemberResults([]); }
   }, []);
@@ -246,16 +261,18 @@ export default function WeeklyTrackingPage() {
             </div>
           </div>
 
-          <div>
-            <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">Branch</label>
-            <div className="relative">
-              <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white">
-                <option value="">All Branches</option>
-                {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          {!isRestricted && (
+            <div>
+              <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">Branch</label>
+              <div className="relative">
+                <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} className="w-full appearance-none px-3 py-2.5 pr-8 border border-gray-200 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-navy-900/20 bg-white">
+                  <option value="">All Branches</option>
+                  {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              </div>
             </div>
-          </div>
+          )}
 
           <div>
             <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-2">Status</label>

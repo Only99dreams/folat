@@ -12,8 +12,10 @@ import {
   Save,
   Pencil,
   Upload,
+  PiggyBank,
 } from "lucide-react";
-import { fetchStaffMember, fetchLeaveRequests, updateStaff, fetchBranches, fetchDocuments, uploadFile, createDocument } from "../lib/db";
+import { fetchStaffMember, fetchLeaveRequests, updateStaff, fetchBranches, fetchDocuments, uploadFile, createDocument, syncStaffCooperativeMember, recordBulkSavingsDeposits } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 import { FileText, ChevronRight } from "lucide-react";
 
 /* ─── Tab options ─── */
@@ -23,6 +25,7 @@ const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500
 
 export default function StaffProfilePage() {
   const { id } = useParams();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("Overview");
   const [staff, setStaff] = useState<any>(null);
@@ -40,6 +43,15 @@ export default function StaffProfilePage() {
   const [docType, setDocType] = useState("other");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+
+  /* ── Savings modal state ── */
+  const [savingsModalOpen, setSavingsModalOpen] = useState(false);
+  const [savingsMonths, setSavingsMonths] = useState<number>(1);
+  const [savingsAmount, setSavingsAmount] = useState<number>(0);
+  const [savingsNotes, setSavingsNotes] = useState("");
+  const [savingsLoading, setSavingsLoading] = useState(false);
+  const [savingsError, setSavingsError] = useState("");
+  const [savingsSuccess, setSavingsSuccess] = useState("");
 
   useEffect(() => {
     if (!id) return;
@@ -79,6 +91,7 @@ export default function StaffProfilePage() {
       branch_id: source.branch_id ?? "",
       job_role: source.job_role ?? "",
       department: source.department ?? "",
+      date_joined: source.date_joined ?? "",
       employment_type: source.employment_type ?? "full_time",
       employment_status: source.employment_status ?? "active",
       basic_salary: source.basic_salary ?? 0,
@@ -103,6 +116,38 @@ export default function StaffProfilePage() {
       setEditError(err?.message || "Failed to save changes");
     }
     setSaving(false);
+  };
+
+  const handleRecordSavings = async () => {
+    if (!id || !staff) return;
+    setSavingsLoading(true);
+    setSavingsError("");
+    setSavingsSuccess("");
+    try {
+      // Ensure staff has a cooperative member record
+      const { member } = await syncStaffCooperativeMember(staff, { created_by: user?.id });
+      if (!member?.id) throw new Error("Failed to create/find cooperative member record");
+
+      const result = await recordBulkSavingsDeposits({
+        member_id: member.id,
+        amount_per_month: savingsAmount,
+        months: savingsMonths,
+        notes: savingsNotes || "Manual savings by admin",
+        recorded_by: user?.id || "",
+        branch_id: staff.branch_id || undefined,
+      });
+
+      setSavingsSuccess(
+        `${savingsMonths} month${savingsMonths > 1 ? "s" : ""} of savings recorded successfully! Total: ₦${result.total.toLocaleString()} | New Balance: ₦${result.new_balance.toLocaleString()}`
+      );
+      setSavingsMonths(1);
+      setSavingsAmount(0);
+      setSavingsNotes("");
+      setTimeout(() => { setSavingsSuccess(""); setSavingsModalOpen(false); }, 3000);
+    } catch (err: any) {
+      setSavingsError(err?.message || "Failed to record savings");
+    }
+    setSavingsLoading(false);
   };
 
   if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="w-8 h-8 animate-spin text-navy-900" /></div>;
@@ -201,6 +246,20 @@ export default function StaffProfilePage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                setSavingsMonths(1);
+                setSavingsAmount(staff.cooperative_savings_amount || 0);
+                setSavingsNotes("");
+                setSavingsError("");
+                setSavingsSuccess("");
+                setSavingsModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+            >
+              <PiggyBank className="w-4 h-4" />
+              Record Savings
+            </button>
             <button
               onClick={() => startEditing()}
               className="flex items-center gap-2 px-5 py-2.5 bg-navy-900 text-white rounded-xl text-sm font-semibold hover:bg-navy-800 transition-colors"
@@ -470,6 +529,116 @@ export default function StaffProfilePage() {
         </div>
       )}
 
+      {/* ═══════════ Record Savings Modal ═══════════ */}
+      {savingsModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-navy-900">Record Savings</h3>
+              <button
+                onClick={() => setSavingsModalOpen(false)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              {/* Staff Info */}
+              <div className="p-4 bg-gray-50 rounded-xl">
+                <p className="text-sm font-semibold text-navy-900">{staff.first_name} {staff.last_name}</p>
+                <p className="text-xs text-gray-400">{staff.staff_id}</p>
+              </div>
+
+              {savingsError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{savingsError}</div>
+              )}
+              {savingsSuccess && (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">{savingsSuccess}</div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Number of Months *</label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5, 6].map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => setSavingsMonths(m)}
+                      className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-colors ${
+                        savingsMonths === m
+                          ? "bg-navy-900 text-white border-navy-900"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={savingsMonths}
+                    onChange={(e) => setSavingsMonths(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="Or enter custom months..."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Amount Per Month (₦) *</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={savingsAmount || ""}
+                  onChange={(e) => setSavingsAmount(Number(e.target.value))}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="e.g. 7000"
+                />
+                {savingsAmount > 0 && savingsMonths > 0 && (
+                  <p className="mt-2 text-sm font-semibold text-navy-900">
+                    Total: ₦{(savingsAmount * savingsMonths).toLocaleString()}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Notes (optional)</label>
+                <input
+                  type="text"
+                  value={savingsNotes}
+                  onChange={(e) => setSavingsNotes(e.target.value)}
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="e.g. Backdated savings for Q1"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-100">
+              <button
+                onClick={() => setSavingsModalOpen(false)}
+                className="px-5 py-2.5 border border-gray-200 rounded-xl text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRecordSavings}
+                disabled={savingsLoading || savingsAmount <= 0 || savingsMonths < 1}
+                className="flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <PiggyBank className="w-4 h-4" />}
+                Record ₦{(savingsAmount * savingsMonths).toLocaleString()}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ═══════════ Edit Modal ═══════════ */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
@@ -544,6 +713,10 @@ export default function StaffProfilePage() {
                     <option value="">Select Branch</option>
                     {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                   </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Start Date (Date Joined)</label>
+                  <input type="date" value={editForm.date_joined} onChange={e => setEditForm(f => ({ ...f, date_joined: e.target.value }))} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500" />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 mb-1">Employment Type</label>

@@ -43,7 +43,7 @@ export function downloadPDF(rows: Record<string, unknown>[], filename: string) {
           .join("")}</tr>`
     )
     .join("");
-  const html = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;margin:40px}h1{font-size:18px;margin-bottom:4px}p{color:#666;font-size:12px;margin-bottom:16px}table{border-collapse:collapse;width:100%}tr:nth-child(even){background:#f9fafb}@media print{body{margin:20px}}</style></head><body><h1>${title}</h1><p>Generated on ${new Date().toLocaleDateString("en-NG",{day:"numeric",month:"long",year:"numeric"})} at ${new Date().toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</p><table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table></body></html>`;
+  const html = `<!DOCTYPE html><html><head><title>${title}</title><style>body{font-family:Arial,sans-serif;margin:40px}h1{font-size:18px;margin-bottom:4px}p{color:#666;font-size:12px;margin-bottom:16px}table{border-collapse:collapse;width:100%}tr:nth-child(even){background:#f9fafb}.header{display:flex;align-items:center;gap:16px;margin-bottom:16px}.logo{width:60px;height:60px;object-fit:contain}@media print{body{margin:20px}}</style></head><body><div class="header"><img src="/logo.png" alt="FOLAT Logo" class="logo"><div><h1>FOLAT Cooperative Society</h1><p>Report: ${title}</p></div></div><p>Generated on ${new Date().toLocaleDateString("en-NG",{day:"numeric",month:"long",year:"numeric"})} at ${new Date().toLocaleTimeString("en-NG",{hour:"2-digit",minute:"2-digit"})}</p><table><thead><tr>${headerRow}</tr></thead><tbody>${bodyRows}</tbody></table></body></html>`;
   const w = window.open("", "_blank");
   if (w) {
     w.document.write(html);

@@ -16,6 +16,8 @@ export default function RoleDashboardRouter() {
     case "super_admin":
       return <DashboardPage />;
     case "branch_manager":
+    case "secretary":
+    case "officer":
       return <BranchManagerDashboard />;
     case "finance_officer":
       return <FinanceOfficerDashboard />;

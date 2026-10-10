@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import ExportMenu from "./ExportMenu";
 import { fetchAuditLog } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const actionIcons: Record<string, React.ElementType> = {
   login: LogIn,
@@ -27,13 +29,16 @@ const actionIcons: Record<string, React.ElementType> = {
 };
 
 export default function AuditLogPage() {
+  const { user } = useAuth();
   const [entries, setEntries] = useState<any[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterModule, setFilterModule] = useState("All");
   const [page, setPage] = useState(1);
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
   const pageSize = 50;
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   const modules = ["All", "members", "loans", "savings", "finance", "fund_requests", "staff", "sms", "settings"];
   const moduleLabels: Record<string, string> = {
@@ -42,14 +47,27 @@ export default function AuditLogPage() {
   };
 
   useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
+
+  useEffect(() => {
     loadData();
-  }, [filterModule, page]);
+  }, [filterModule, page, branchFilterId]);
 
   async function loadData() {
     try {
       setLoading(true);
       const filters: any = { page, pageSize };
       if (filterModule !== "All") filters.entity_type = filterModule;
+      if (isRestricted && branchFilterId) filters.branch_id = branchFilterId;
       const { data, count } = await fetchAuditLog(filters);
       setEntries(data);
       setTotalEntries(count);

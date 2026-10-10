@@ -17,6 +17,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchAttendance } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import ExportMenu from "./ExportMenu";
 
 const avatarColors = ["bg-blue-600","bg-green-600","bg-purple-600","bg-amber-500","bg-pink-600","bg-teal-600","bg-navy-900"];
@@ -38,22 +40,37 @@ const statusBadge = (status: string) => {
 };
 
 export default function AttendanceLogPage() {
+  const { user } = useAuth();
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const data = await fetchAttendance({ date: selectedDate });
+        const data = await fetchAttendance({ date: selectedDate, branch_id: branchFilterId || undefined });
         setRecords(data);
       } catch {}
       setLoading(false);
     })();
-  }, [selectedDate]);
+  }, [selectedDate, branchFilterId]);
 
   const statuses = ["All", "present", "late", "absent", "half_day", "leave"];
   const statusLabels: Record<string,string> = { All: "All", present: "Present", late: "Late", absent: "Absent", half_day: "Half Day", leave: "On Leave" };

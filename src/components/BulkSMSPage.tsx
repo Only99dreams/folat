@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { sendSMS, fetchSMSLog, fetchSMSStats, fetchBranches } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const statusBadge = (status: string) => {
   const styles: Record<string, { bg: string; icon: React.ElementType }> = {
@@ -44,6 +45,19 @@ export default function BulkSMSPage() {
     branch: "",
     message: "",
   });
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setForm(prev => ({ ...prev, branch: data.id }));
+    })();
+  }, [isRestricted, user?.branch]);
 
   const loadData = () => {
     Promise.all([fetchBranches(), fetchSMSLog(), fetchSMSStats()])
@@ -184,19 +198,21 @@ export default function BulkSMSPage() {
             </div>
 
             {/* Branch */}
-            <div>
-              <label className="block text-sm font-semibold text-navy-900 mb-2">
-                Branch Filter
-              </label>
-              <select
-                value={form.branch}
-                onChange={(e) => update("branch", e.target.value)}
-                className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none"
-              >
-                <option value="">All Branches</option>
-              {branches.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
-              </select>
-            </div>
+            {!isRestricted && (
+              <div>
+                <label className="block text-sm font-semibold text-navy-900 mb-2">
+                  Branch Filter
+                </label>
+                <select
+                  value={form.branch}
+                  onChange={(e) => update("branch", e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none"
+                >
+                  <option value="">All Branches</option>
+                {branches.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
+                </select>
+              </div>
+            )}
 
             {/* Message */}
             <div>

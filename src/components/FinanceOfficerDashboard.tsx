@@ -22,16 +22,6 @@ import {
 } from "recharts";
 import { fetchFinanceTransactions, fetchFundRequests, fetchDashboardStats } from "../lib/db";
 
-/* ─── Chart placeholder ─── */
-const defaultChartData = [
-  { month: "Jan", income: 0, expenses: 0 },
-  { month: "Feb", income: 0, expenses: 0 },
-  { month: "Mar", income: 0, expenses: 0 },
-  { month: "Apr", income: 0, expenses: 0 },
-  { month: "May", income: 0, expenses: 0 },
-  { month: "Jun", income: 0, expenses: 0 },
-];
-
 export default function FinanceOfficerDashboard() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -40,7 +30,7 @@ export default function FinanceOfficerDashboard() {
   const [recentTxns, setRecentTxns] = useState<any[]>([]);
   const [pendingRequests, setPendingRequests] = useState<any[]>([]);
   const [pendingDisbursements, setPendingDisbursements] = useState(0);
-  const [revenueData] = useState(defaultChartData);
+  const [revenueData, setRevenueData] = useState<any[]>([]);
   const [now] = useState(() => Date.now());
 
   const fmt = (n: number) => n >= 1e9 ? `₦ ${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `₦ ${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `₦ ${(n / 1e3).toFixed(0)}K` : `₦ ${n.toLocaleString()}`;
@@ -53,13 +43,36 @@ export default function FinanceOfficerDashboard() {
           fetchFinanceTransactions({ type: "expense", page: 1, pageSize: 1000 }),
           fetchFinanceTransactions({ page: 1, pageSize: 5 }),
           fetchFundRequests({ status: "pending", page: 1, pageSize: 5 }),
-          fetchDashboardStats(),
+          fetchDashboardStats(undefined, user ? { id: user.id, role: user.role, branch: user.branch } : undefined),
         ]);
-        setTotalIncome(incomeRes.data.reduce((s: number, t: any) => s + Number(t.amount), 0));
-        setTotalExpenses(expenseRes.data.reduce((s: number, t: any) => s + Number(t.amount), 0));
+        const incData = incomeRes.data;
+        const expData = expenseRes.data;
+        setTotalIncome(incData.reduce((s: number, t: any) => s + Number(t.amount), 0));
+        setTotalExpenses(expData.reduce((s: number, t: any) => s + Number(t.amount), 0));
         setRecentTxns(txnRes.data);
         setPendingRequests(fundRes.data);
         setPendingDisbursements(dashStats.pendingLoans);
+
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const currentYear = new Date().getFullYear();
+        const monthly: Record<string, { income: number; expenses: number }> = {};
+        for (const m of months) monthly[m] = { income: 0, expenses: 0 };
+
+        for (const t of incData) {
+          const d = new Date(t.date || t.created_at);
+          if (d.getFullYear() === currentYear) {
+            const label = months[d.getMonth()];
+            monthly[label].income += Number(t.amount || 0);
+          }
+        }
+        for (const t of expData) {
+          const d = new Date(t.date || t.created_at);
+          if (d.getFullYear() === currentYear) {
+            const label = months[d.getMonth()];
+            monthly[label].expenses += Number(t.amount || 0);
+          }
+        }
+        setRevenueData(months.map(m => ({ month: m, ...monthly[m] })));
       } catch (e) { console.error(e); }
       setLoading(false);
     })();

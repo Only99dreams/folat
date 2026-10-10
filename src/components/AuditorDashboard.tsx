@@ -20,32 +20,44 @@ import {
 } from "recharts";
 import { fetchAuditLog } from "../lib/db";
 
-/* ─── Chart placeholder ─── */
-const defaultComplianceData = [
-  { month: "Jan", compliant: 0, issues: 0 },
-  { month: "Feb", compliant: 0, issues: 0 },
-  { month: "Mar", compliant: 0, issues: 0 },
-  { month: "Apr", compliant: 0, issues: 0 },
-  { month: "May", compliant: 0, issues: 0 },
-  { month: "Jun", compliant: 0, issues: 0 },
-];
-
 export default function AuditorDashboard() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [totalEntries, setTotalEntries] = useState(0);
   const [recentLogs, setRecentLogs] = useState<any[]>([]);
-  const [complianceData] = useState(defaultComplianceData);
+  const [complianceData, setComplianceData] = useState<any[]>([]);
   const [now] = useState(() => Date.now());
 
   useEffect(() => {
     (async () => {
       try {
-        const [logRes] = await Promise.all([
+        const [logRes, allLogs] = await Promise.all([
           fetchAuditLog({ page: 1, pageSize: 5 }),
+          fetchAuditLog({ page: 1, pageSize: 1000 }),
         ]);
         setTotalEntries(logRes.count);
         setRecentLogs(logRes.data);
+
+        const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const currentYear = new Date().getFullYear();
+        const monthly: Record<string, { compliant: number; issues: number }> = {};
+        for (const m of months) monthly[m] = { compliant: 0, issues: 0 };
+
+        for (const entry of allLogs.data ?? []) {
+          const d = new Date(entry.created_at);
+          if (d.getFullYear() === currentYear) {
+            const label = months[d.getMonth()];
+            const action = (entry.action || "").toLowerCase();
+            if (["approve", "approval", "disburse", "create", "update", "process"].some(a => action.includes(a))) {
+              monthly[label].compliant += 1;
+            } else if (["reject", "delete", "cancel", "fail", "error", "revoke", "lock"].some(a => action.includes(a))) {
+              monthly[label].issues += 1;
+            } else {
+              monthly[label].compliant += 1;
+            }
+          }
+        }
+        setComplianceData(months.map(m => ({ month: m, ...monthly[m] })));
       } catch (e) { console.error(e); }
       setLoading(false);
     })();

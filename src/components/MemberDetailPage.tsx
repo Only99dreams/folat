@@ -19,10 +19,13 @@ import {
   X,
   Save,
 } from "lucide-react";
-import { fetchMember, fetchSavingsAccount, fetchSavingsTransactions, fetchLoanApplications, fetchAuditLog, fetchDocuments, uploadFile, createDocument, updateMember, fetchBranches, fetchGroups } from "../lib/db";
+import { fetchMember, fetchSavingsAccount, fetchSavingsTransactions, fetchLoanApplications, fetchAuditLog, fetchDocuments, uploadFile, createDocument, updateMember, fetchBranches, fetchGroups, deleteMember } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { confirmToast, toastSuccess, toastError } from "../lib/toast";
 
 export default function MemberDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Overview");
@@ -40,6 +43,8 @@ export default function MemberDetailPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
 
+  const paidBackLoans = allLoans.filter((l: any) => l.status === "completed");
+
   /* ── Edit state ── */
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -47,6 +52,23 @@ export default function MemberDetailPage() {
   const [editError, setEditError] = useState("");
   const [branches, setBranches] = useState<any[]>([]);
   const [groups, setGroups] = useState<any[]>([]);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleDelete = async () => {
+    if (!id || !member || user?.role !== "super_admin") return;
+    const name = `${member.first_name} ${member.last_name}`;
+    const confirmed = await confirmToast(`Permanently delete ${name} and ALL their data (savings, loans, transactions)? This cannot be undone.`);
+    if (!confirmed) return;
+    setDeleting(true);
+    try {
+      await deleteMember(id);
+      toastSuccess(`${name} has been permanently deleted.`);
+      navigate("/members");
+    } catch (err: any) {
+      toastError(err?.message || "Failed to delete member.");
+      setDeleting(false);
+    }
+  };
 
   const startEditing = (m?: any) => {
     const source = m || member;
@@ -67,6 +89,7 @@ export default function MemberDetailPage() {
       group_id: source.group_id ?? "",
       status: source.status ?? "active",
       contribution_type: source.contribution_type ?? "monthly",
+      savings_months: source.savings_months ?? "",
       nok_name: source.nok_name ?? "",
       nok_phone: source.nok_phone ?? "",
       nok_relationship: source.nok_relationship ?? "",
@@ -107,13 +130,13 @@ export default function MemberDetailPage() {
         setMember(m);
         const sa = await fetchSavingsAccount(id).catch(() => null);
         setSavings(sa);
-        const [disbursedLoans, allLoansRes, txns, audit] = await Promise.all([
-          fetchLoanApplications({ member_id: id, status: "disbursed" }),
-          fetchLoanApplications({ member_id: id, pageSize: 50 }),
+        const [activeLoans, allLoansRes, txns, audit] = await Promise.all([
+          fetchLoanApplications({ member_id: id, status: ["approved", "disbursed"], user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
+          fetchLoanApplications({ member_id: id, pageSize: 50, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
           sa ? fetchSavingsTransactions({ member_id: id, pageSize: 50 }) : Promise.resolve({ data: [], count: 0 }),
           fetchAuditLog({ page: 1, pageSize: 20 }),
         ]);
-        setActiveLoans(disbursedLoans.data);
+        setActiveLoans(activeLoans.data);
         setAllLoans(allLoansRes.data);
         setSavingsTxns(txns.data);
         setAuditEntries(audit.data.filter((a: any) => a.entity_id === id));
@@ -190,6 +213,12 @@ export default function MemberDetailPage() {
               <CreditCard className="w-4 h-4" />
               Record Deposit
             </Link>
+            {user?.role === "super_admin" && (
+              <button onClick={handleDelete} disabled={deleting} className="flex items-center gap-1.5 px-4 py-2 border border-red-200 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50">
+                {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Delete
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -248,9 +277,9 @@ export default function MemberDetailPage() {
         {/* Active Loan */}
         <div className="bg-white rounded-xl border border-gray-100 p-5">
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
-            Active Loan
+            Amount Owed
           </p>
-          <p className="text-2xl font-bold text-navy-900 mt-1">₦{activeLoans.length > 0 ? Number(activeLoans[0].amount_approved ?? activeLoans[0].amount_requested).toLocaleString() : 0}</p>
+          <p className="text-2xl font-bold text-navy-900 mt-1">₦{activeLoans.length > 0 ? activeLoans.reduce((s, l) => s + (l.outstanding_balance ?? l.amount_approved ?? l.amount_requested ?? 0), 0).toLocaleString() : 0}</p>
           <p className="text-xs text-gray-400 mt-1.5">{activeLoans.length > 0 ? `Loan: ${activeLoans[0].loan_id}` : "No active loan"}</p>
         </div>
 
@@ -273,7 +302,7 @@ export default function MemberDetailPage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold">
             Total Deposits
           </p>
-          <p className="text-2xl font-bold text-navy-900 mt-1">₦{savings ? Number(savings.balance).toLocaleString() : 0}</p>
+          <p className="text-2xl font-bold text-navy-900 mt-1">₦{savingsTxns.filter((t: any) => t.type === 'deposit').reduce((sum, t) => sum + Number(t.amount), 0).toLocaleString()}</p>
           <p className="text-xs text-gray-400 mt-1.5">Lifetime total value</p>
         </div>
       </div>
@@ -482,9 +511,9 @@ export default function MemberDetailPage() {
 
                 <div className="flex items-center justify-between">
                   <p className="text-sm text-gray-600">
-                    Total Loan Amount
+                    Total Loan Owed
                   </p>
-                  <p className="text-base font-bold text-navy-900">₦{activeLoans.reduce((s: number, l: any) => s + (l.amount || 0), 0).toLocaleString()}</p>
+                  <p className="text-base font-bold text-navy-900">₦{activeLoans.reduce((s: number, l: any) => s + (l.outstanding_balance ?? l.amount_approved ?? l.amount_requested ?? 0), 0).toLocaleString()}</p>
                 </div>
 
                 <p className="text-xs text-gray-500 text-center">
@@ -596,6 +625,37 @@ export default function MemberDetailPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Paid Back Loans */}
+      {paidBackLoans.length > 0 && (
+        <div className="bg-white rounded-xl border border-green-100 p-6">
+          <h3 className="text-base font-bold text-green-700 mb-4">Paid Back Loans ({paidBackLoans.length})</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead>
+                <tr className="text-[10px] tracking-[0.1em] uppercase text-gray-400 border-b border-green-100">
+                  <th className="pb-3 font-semibold">Loan ID</th>
+                  <th className="pb-3 font-semibold">Type</th>
+                  <th className="pb-3 font-semibold">Amount</th>
+                  <th className="pb-3 font-semibold">Duration</th>
+                  <th className="pb-3 font-semibold">Date</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm">
+                {paidBackLoans.map((loan: any) => (
+                  <tr key={loan.id} className="border-b border-green-50 last:border-0">
+                    <td className="py-3 font-medium text-navy-900 text-xs">{loan.loan_id}</td>
+                    <td className="py-3 text-gray-500 text-xs capitalize">{loan.loan_type}</td>
+                    <td className="py-3 font-semibold text-green-600">₦{Number(loan.amount_approved ?? loan.amount_requested).toLocaleString()}</td>
+                    <td className="py-3 text-gray-500 text-xs">{loan.duration_months} months</td>
+                    <td className="py-3 text-gray-400 text-xs">{new Date(loan.created_at).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -810,6 +870,11 @@ export default function MemberDetailPage() {
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Months Saved</label>
+                <input type="number" min="0" value={editForm.savings_months ?? ""} onChange={e => setEditForm(f => ({ ...f, savings_months: e.target.value === "" ? null : (parseInt(e.target.value, 10) || 0) }))} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Leave blank to auto-calculate" />
+                <p className="text-[10px] text-gray-400 mt-1">Manual override used for cooperative loan eligibility. Blank = auto-calculated from savings history.</p>
               </div>
 
               {/* Next of Kin */}

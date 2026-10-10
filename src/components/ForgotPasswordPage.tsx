@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Mail, KeyRound, ArrowLeft, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { Link } from "react-router-dom";
-import { supabase } from "../lib/supabase";
+import { initiatePasswordReset } from "../lib/passwordReset";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -21,16 +21,29 @@ export default function ForgotPasswordPage() {
 
     setSubmitting(true);
 
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmed, {
-      redirectTo: `${window.location.origin}/reset-password`,
-    });
+    try {
+      const result = await initiatePasswordReset(trimmed);
 
-    setSubmitting(false);
+      setSubmitting(false);
 
-    if (resetError) {
-      setError(resetError.message);
-    } else {
-      setSent(true);
+      if (!result.success) {
+        console.error("Reset password error:", result.error);
+        setError(result.error || "Failed to send reset email. Please try again.");
+      } else {
+        setSent(true);
+      }
+    } catch (err) {
+      setSubmitting(false);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error("Reset password exception:", errorMsg, err);
+      
+      if (errorMsg.includes("504") || errorMsg.includes("Gateway")) {
+        setError("Email service temporarily unavailable. Please try again in a moment.");
+      } else if (errorMsg.includes("Failed to fetch")) {
+        setError("Network error. Please check your connection and try again.");
+      } else {
+        setError("Failed to send reset email. Please try again.");
+      }
     }
   };
 

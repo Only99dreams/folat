@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Save, Loader2 } from "lucide-react";
-import { fetchBranches, createFinanceTransaction } from "../lib/db";
+import { fetchBranches, createFinanceTransaction, fetchFinanceTransactions } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 
 export default function AddIncomePage() {
@@ -10,6 +10,10 @@ export default function AddIncomePage() {
   const [branches, setBranches] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [todayTotal, setTodayTotal] = useState(0);
+  const [pendingEntries, setPendingEntries] = useState(0);
+  const [topCategory, setTopCategory] = useState("—");
+  const [loadingStats, setLoadingStats] = useState(true);
   const [form, setForm] = useState({
     category: "",
     amount: "",
@@ -20,7 +24,33 @@ export default function AddIncomePage() {
     description: "",
   });
 
-  useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
+  useEffect(() => { 
+    fetchBranches().then(setBranches).catch(() => {}); 
+    
+    (async () => {
+      setLoadingStats(true);
+      try {
+        const today = new Date().toISOString().split("T")[0];
+        const [todayRes, allRes] = await Promise.all([
+          fetchFinanceTransactions({ type: "income", date_from: today, date_to: today, pageSize: 1000 }),
+          fetchFinanceTransactions({ type: "income", pageSize: 1000 }),
+        ]);
+        
+        setTodayTotal(todayRes.data.reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0));
+        
+        const categoryCounts: Record<string, number> = {};
+        for (const t of allRes.data) {
+          const cat = t.category || "Other";
+          categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+        }
+        const top = Object.entries(categoryCounts).sort((a, b) => b[1] - a[1])[0];
+        if (top) setTopCategory(top[0]);
+        
+        setPendingEntries(allRes.data.filter((t: any) => t.status === "pending" || t.status === "recorded").length);
+      } catch {}
+      setLoadingStats(false);
+    })();
+  }, []);
 
   const update = (field: string, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -196,7 +226,11 @@ export default function AddIncomePage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
             Today's Total
           </p>
-          <p className="text-xl font-bold text-navy-900">₦142,500.00</p>
+          {loadingStats ? (
+            <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
+          ) : (
+            <p className="text-xl font-bold text-navy-900">₦{todayTotal.toLocaleString()}</p>
+          )}
         </div>
 
         {/* Pending Entries */}
@@ -204,7 +238,11 @@ export default function AddIncomePage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
             Pending Entries
           </p>
-          <p className="text-xl font-bold text-navy-900">12</p>
+          {loadingStats ? (
+            <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
+          ) : (
+            <p className="text-xl font-bold text-navy-900">{pendingEntries}</p>
+          )}
         </div>
 
         {/* Top Category */}
@@ -212,7 +250,11 @@ export default function AddIncomePage() {
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
             Top Category
           </p>
-          <p className="text-xl font-bold text-navy-900">Loan Interest</p>
+          {loadingStats ? (
+            <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
+          ) : (
+            <p className="text-xl font-bold text-navy-900">{topCategory}</p>
+          )}
         </div>
       </div>
     </div>

@@ -14,6 +14,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { fetchFinanceTransactions, fetchBranches } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 import ExportMenu from "./ExportMenu";
 
 const typeBadge = (type: Transaction["type"]) => {
@@ -36,6 +38,7 @@ const typeBadge = (type: Transaction["type"]) => {
 };
 
 export default function FinancialLedgerPage() {
+  const { user } = useAuth();
   const [transactions, setTransactions] = useState<any[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
   const [branches, setBranches] = useState<any[]>([]);
@@ -47,8 +50,21 @@ export default function FinancialLedgerPage() {
   const [totalIncome, setTotalIncome] = useState(0);
   const [totalExpenses, setTotalExpenses] = useState(0);
   const perPage = 10;
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   useEffect(() => { fetchBranches().then(setBranches).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilter(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     (async () => {
@@ -58,7 +74,7 @@ export default function FinancialLedgerPage() {
         if (branchFilter) filters.branch_id = branchFilter;
         if (typeFilter) filters.type = typeFilter;
         if (categoryFilter) filters.category = categoryFilter;
-        const { data, count } = await fetchFinanceTransactions(filters);
+        const { data, count } = await fetchFinanceTransactions({ ...filters, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined });
         setTransactions(data);
         setTotalEntries(count);
       } catch {}
@@ -69,9 +85,10 @@ export default function FinancialLedgerPage() {
   useEffect(() => {
     (async () => {
       try {
+        const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
         const [inc, exp] = await Promise.all([
-          fetchFinanceTransactions({ type: "income", pageSize: 10000 }),
-          fetchFinanceTransactions({ type: "expense", pageSize: 10000 }),
+          fetchFinanceTransactions({ type: "income", pageSize: 10000, user: userObj }),
+          fetchFinanceTransactions({ type: "expense", pageSize: 10000, user: userObj }),
         ]);
         setTotalIncome(inc.data.reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0));
         setTotalExpenses(exp.data.reduce((s: number, t: any) => s + Number(t.amount ?? 0), 0));
@@ -114,9 +131,6 @@ export default function FinancialLedgerPage() {
             <div className="w-10 h-10 rounded-xl bg-navy-900 flex items-center justify-center">
               <TrendingUp className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">
-              +12.5%
-            </span>
           </div>
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
             Total Income
@@ -130,9 +144,6 @@ export default function FinancialLedgerPage() {
             <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
               <TrendingDown className="w-5 h-5 text-amber-500" />
             </div>
-            <span className="text-xs font-semibold text-red-500 bg-red-50 px-2 py-1 rounded-full">
-              -5.2%
-            </span>
           </div>
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
             Total Expenses
@@ -146,9 +157,6 @@ export default function FinancialLedgerPage() {
             <div className="w-10 h-10 rounded-xl bg-navy-900 flex items-center justify-center">
               <ClipboardList className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-1 rounded-full">
-              +18.1%
-            </span>
           </div>
           <p className="text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1">
             Net Balance
@@ -168,15 +176,17 @@ export default function FinancialLedgerPage() {
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Branch */}
-          <div>
-            <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1.5">
-              Branch
-            </label>
-            <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1); }} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none">
-              <option value="">All Branches</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </div>
+          {!isRestricted && (
+            <div>
+              <label className="block text-[10px] tracking-[0.1em] uppercase text-gray-400 font-semibold mb-1.5">
+                Branch
+              </label>
+              <select value={branchFilter} onChange={e => { setBranchFilter(e.target.value); setPage(1); }} className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent appearance-none">
+                <option value="">All Branches</option>
+                {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+          )}
 
           {/* Transaction Type */}
           <div>

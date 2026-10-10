@@ -8,6 +8,8 @@ export type UserRole =
   | "front_desk"
   | "auditor"
   | "hr_manager"
+  | "secretary"
+  | "officer"
   | "unassigned";
 
 export interface User {
@@ -18,55 +20,85 @@ export interface User {
   roleLabel: string;
   branch: string;
   avatar: string;
+  avatarUrl?: string;
+  cocAccepted?: boolean;
 }
 
 /* ─── Permission Keys ─── */
 export type Permission =
   | "members.view" | "members.add" | "members.edit" | "members.delete"
   | "savings.view" | "savings.deposit" | "savings.bulk_upload" | "savings.transactions" | "savings.statement" | "savings.withdrawal" | "savings.data_sheet"
-  | "loans.view" | "loans.create" | "loans.approve" | "loans.disburse" | "loans.repayments" | "loans.record_repayment" | "loans.weekly_tracking"
+    | "loans.view" | "loans.create" | "loans.approve" | "loans.disburse" | "loans.repayments" | "loans.record_repayment" | "loans.weekly_tracking" | "loans.monthly_tracking"
   | "groups.view" | "groups.create"
   | "finance.view" | "finance.add_income" | "finance.add_expense" | "finance.ledger" | "finance.fund_requests" | "finance.approve_requests"
   | "hr.view" | "hr.staff_list" | "hr.add_staff" | "hr.leave_requests" | "hr.salary_structure" | "hr.attendance"
-  | "branches.view" | "branches.add"
+  | "branches.view" | "branches.add" | "branches.assign_staff"
   | "communication.messages" | "communication.sms"
   | "reports.view"
   | "security.access_control" | "security.audit_log"
-  | "settings.general" | "settings.notifications";
+  | "settings.general" | "settings.notifications" | "settings.loan_rules"
+  | "records.view_combined";
 
 /* ─── Role → Permissions Map ─── */
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   super_admin: [
     "members.view", "members.add", "members.edit", "members.delete",
     "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
-    "loans.view", "loans.create", "loans.approve", "loans.disburse", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
+    "loans.view", "loans.create", "loans.approve", "loans.disburse", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking", "loans.monthly_tracking",
     "groups.view", "groups.create",
-    "finance.view", "finance.add_income", "finance.add_expense", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
-    "hr.view", "hr.staff_list", "hr.add_staff", "hr.leave_requests", "hr.salary_structure", "hr.attendance",
-    "branches.view", "branches.add",
+     "finance.view", "finance.add_income", "finance.add_expense", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
+     "hr.view", "hr.staff_list", "hr.add_staff", "hr.leave_requests", "hr.salary_structure", "hr.attendance",
+     "branches.view", "branches.add", "branches.assign_staff",
     "communication.messages", "communication.sms",
     "reports.view",
     "security.access_control", "security.audit_log",
-    "settings.general", "settings.notifications",
+    "settings.general", "settings.notifications", "settings.loan_rules",
+    "records.view_combined",
   ],
   branch_manager: [
     "members.view", "members.add", "members.edit",
     "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
-    "loans.view", "loans.create", "loans.approve", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
+    "loans.view", "loans.create", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
     "groups.view", "groups.create",
-    "finance.view", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
-    "hr.view", "hr.staff_list", "hr.leave_requests", "hr.attendance",
-    "branches.view",
+     "finance.view", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
+     "hr.view", "hr.staff_list", "hr.leave_requests", "hr.attendance",
+     "branches.view", "branches.assign_staff",
     "communication.messages",
     "reports.view",
+    "records.view_combined",
+  ],
+  secretary: [
+    "members.view", "members.add", "members.edit",
+    "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
+    "loans.view", "loans.create", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
+    "groups.view", "groups.create",
+     "finance.view", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
+     "hr.view", "hr.staff_list", "hr.leave_requests", "hr.attendance",
+     "branches.view", "branches.assign_staff",
+    "communication.messages",
+    "reports.view",
+    "records.view_combined",
+  ],
+  officer: [
+    "members.view", "members.add", "members.edit",
+    "savings.view", "savings.deposit", "savings.bulk_upload", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
+    "loans.view", "loans.create", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
+    "groups.view", "groups.create",
+     "finance.view", "finance.ledger", "finance.fund_requests", "finance.approve_requests",
+     "hr.view", "hr.staff_list", "hr.leave_requests", "hr.attendance",
+     "branches.view", "branches.assign_staff",
+    "communication.messages",
+    "reports.view",
+    "records.view_combined",
   ],
   finance_officer: [
     "members.view",
     "savings.view", "savings.deposit", "savings.transactions", "savings.statement", "savings.withdrawal", "savings.data_sheet",
-    "loans.view", "loans.disburse", "loans.repayments",
+    "loans.view", "loans.create", "loans.approve", "loans.disburse", "loans.repayments", "loans.record_repayment", "loans.weekly_tracking",
     "finance.view", "finance.add_income", "finance.add_expense", "finance.ledger", "finance.fund_requests",
     "communication.messages",
     "reports.view",
+    "branches.assign_staff",
   ],
   loan_officer: [
     "savings.view", "savings.transactions",
@@ -86,6 +118,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "savings.view", "savings.deposit",
     "groups.view",
     "communication.messages",
+    "records.view_combined",
   ],
   auditor: [
     "members.view",
@@ -101,6 +134,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "hr.view", "hr.staff_list", "hr.add_staff", "hr.leave_requests", "hr.salary_structure", "hr.attendance",
     "reports.view",
     "communication.messages",
+    "records.view_combined",
   ],
   unassigned: [],
 };
@@ -115,5 +149,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   front_desk: "Front Desk",
   auditor: "Auditor",
   hr_manager: "HR Manager",
+  secretary: "Secretary",
+  officer: "Officer",
   unassigned: "Pending Assignment",
 };

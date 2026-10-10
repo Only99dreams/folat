@@ -16,8 +16,10 @@ import {
   generateMemberId,
   fetchBranches,
   searchStaffForCooperative,
+  setStaffCooperativeFlag,
 } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 /* ─── read-only display field ─── */
 const ReadField = ({ label, value }: { label: string; value: string }) => (
@@ -53,11 +55,24 @@ export default function AddCooperativeMemberPage() {
   const [branches, setBranches] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
 
   useEffect(() => {
     generateMemberId().then(setMemberId).catch(console.error);
     fetchBranches().then(setBranches).catch(console.error);
   }, []);
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranch(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   /* ── staff search ── */
   const handleStaffSearch = useCallback(async (q: string) => {
@@ -112,6 +127,9 @@ export default function AddCooperativeMemberPage() {
         created_by: user?.id,
         status: "active",
       });
+      try {
+        await setStaffCooperativeFlag(selectedStaff.id, true);
+      } catch { /* non-blocking — member row is the source of truth */ }
       navigate("/members");
     } catch (err: any) {
       if (err.message?.includes("unique") || err.message?.includes("duplicate")) {
@@ -245,20 +263,22 @@ export default function AddCooperativeMemberPage() {
             />
           </div>
 
-          <div className="relative">
-            <label className="block text-sm font-medium text-navy-900 mb-1.5">Branch</label>
-            <select
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
-            >
-              <option value="">Select Branch</option>
-              {branches.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
-          </div>
+          {!isRestricted && (
+            <div className="relative">
+              <label className="block text-sm font-medium text-navy-900 mb-1.5">Branch</label>
+              <select
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                className="w-full appearance-none px-4 py-2.5 pr-9 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-900/20 focus:border-navy-900 bg-white"
+              >
+                <option value="">Select Branch</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-[38px] w-4 h-4 text-gray-400 pointer-events-none" />
+            </div>
+          )}
         </div>
       </section>
 

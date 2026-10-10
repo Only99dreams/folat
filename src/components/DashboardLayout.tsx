@@ -25,6 +25,7 @@ type NotificationItem = {
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -33,7 +34,9 @@ export default function DashboardLayout() {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
-  const notifRef = useRef<HTMLDivElement>(null);
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const notifBtnRef = useRef<HTMLDivElement>(null);
+  const notifDropdownRef = useRef<HTMLDivElement>(null);
 
   const loadNotifications = useCallback(async () => {
     if (!user?.id) return;
@@ -104,15 +107,25 @@ export default function DashboardLayout() {
     };
   }, [loadNotifications, user?.id]);
 
-  // Close dropdown on outside click
+  // Close dropdown on outside click (checks both button and dropdown)
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      const insideBtn = notifBtnRef.current && notifBtnRef.current.contains(target);
+      const insideDropdown = notifDropdownRef.current && notifDropdownRef.current.contains(target);
+      if (!insideBtn && !insideDropdown) {
         setNotifOpen(false);
       }
     }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setNotifOpen(false);
+    }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
   }, []);
 
   const handleMarkRead = async (id: string) => {
@@ -138,7 +151,7 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar open={sidebarOpen} onClose={closeSidebar} />
 
       {/* Main area */}
       <div className="lg:ml-56 flex flex-col min-h-screen">
@@ -149,7 +162,9 @@ export default function DashboardLayout() {
             <div className="flex items-center gap-3 flex-1 min-w-0">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 -ml-1 rounded-lg hover:bg-gray-100 transition-colors"
+                className="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                type="button"
+                aria-label="Open menu"
               >
                 <Menu className="w-5 h-5 text-navy-900" />
               </button>
@@ -159,6 +174,12 @@ export default function DashboardLayout() {
                   type="text"
                   placeholder="Search members, loans, staff..."
                   className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  onKeyDown={(e: any) => {
+                    if (e.key === "Enter") {
+                      const q = e.currentTarget.value?.trim();
+                      if (q) navigate(`/search?q=${encodeURIComponent(q)}`);
+                    }
+                  }}
                 />
               </div>
             </div>
@@ -166,13 +187,20 @@ export default function DashboardLayout() {
             {/* Right side */}
             <div className="flex items-center gap-2 sm:gap-4 ml-2">
               {/* Mobile search toggle */}
-              <button className="sm:hidden p-2 text-gray-400 hover:text-navy-900 transition-colors">
+              <button
+                onClick={() => setMobileSearchOpen(true)}
+                className="sm:hidden p-2 text-gray-400 hover:text-navy-900 transition-colors"
+                type="button"
+                aria-label="Open search"
+              >
                 <Search className="w-5 h-5" />
               </button>
-              <div ref={notifRef} className="relative">
+              <div ref={notifBtnRef} className="relative">
                 <button
                   onClick={() => { setNotifOpen(!notifOpen); if (!notifOpen) loadNotifications(); }}
                   className="relative p-2 text-gray-400 hover:text-navy-900 transition-colors"
+                  aria-haspopup="dialog"
+                  aria-expanded={notifOpen}
                 >
                   <Bell className="w-5 h-5" />
                   {unreadCount > 0 && (
@@ -184,7 +212,10 @@ export default function DashboardLayout() {
 
                 {/* Notification dropdown */}
                 {notifOpen && (
-                  <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+                  <div
+                    ref={notifDropdownRef}
+                    className="fixed left-2 right-2 top-14 sm:absolute sm:top-full sm:right-0 sm:left-auto mt-2 w-auto sm:w-96 bg-white rounded-xl shadow-xl border border-gray-100 z-50 max-h-[70vh] overflow-hidden"
+                  >
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                       <h3 className="text-sm font-bold text-navy-900">Notifications</h3>
                       {unreadCount > 0 && (
@@ -257,11 +288,18 @@ export default function DashboardLayout() {
                 <Link to="/profile" className="text-right hidden sm:block hover:opacity-80 transition-opacity">
                   <p className="text-sm font-semibold text-navy-900">{user?.name ?? "User"}</p>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide">
+                    ID: {user?.id ? user.id.slice(0, 8).toUpperCase() : "—"}
+                  </p>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide">
                     {user?.roleLabel ?? "—"}
                   </p>
                 </Link>
-                <Link to="/profile" className="w-9 h-9 rounded-full bg-navy-900 flex items-center justify-center text-white text-sm font-bold shrink-0 hover:ring-2 hover:ring-green-500 transition-all">
-                  {user?.avatar?.[0] ?? "U"}
+                <Link to="/profile" className="w-9 h-9 rounded-full bg-navy-900 flex items-center justify-center text-white text-sm font-bold shrink-0 hover:ring-2 hover:ring-green-500 transition-all overflow-hidden">
+                  {user?.avatarUrl ? (
+                    <img src={user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    user?.avatar?.[0] ?? "U"
+                  )}
                 </Link>
                 <button
                   onClick={handleLogout}
@@ -274,6 +312,35 @@ export default function DashboardLayout() {
             </div>
           </div>
         </header>
+
+        {/* Mobile search overlay */}
+        {mobileSearchOpen && (
+          <div
+            className="fixed inset-0 z-40 sm:hidden flex items-start p-4"
+            onClick={() => setMobileSearchOpen(false)}
+          >
+            <div className="w-full max-w-md bg-white rounded-xl p-3 mx-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="relative">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="Search members, loans, staff..."
+                  className="w-full pl-10 pr-4 py-2.5 text-sm border border-gray-200 rounded-xl placeholder:text-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  onKeyDown={(e: any) => {
+                    if (e.key === "Enter") {
+                      const q = e.currentTarget.value?.trim();
+                      if (q) {
+                        setMobileSearchOpen(false);
+                        navigate(`/search?q=${encodeURIComponent(q)}`);
+                      }
+                    }
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Page content */}
         <main className="flex-1 p-4 sm:p-6">

@@ -42,7 +42,8 @@ export default function RecordDepositPage() {
     const timeout = setTimeout(async () => {
       setSearching(true);
       try {
-        const { data } = await fetchMembers({ search: memberQuery, pageSize: 5 });
+        const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
+        const { data } = await fetchMembers({ search: memberQuery, pageSize: 5, user: userObj });
         setSearchResults(data);
       } catch { setSearchResults([]); }
       setSearching(false);

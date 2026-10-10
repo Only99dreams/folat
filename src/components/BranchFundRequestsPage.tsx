@@ -10,7 +10,9 @@ import {
   ChevronRight,
   Loader2,
 } from "lucide-react";
-import { fetchFundRequests } from "../lib/db";
+import { fetchFundRequests, getTotalAvailableFunds } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
+import { supabase } from "../lib/supabase";
 
 const statusBadge = (status: string) => {
   const styles: Record<string, string> = {
@@ -26,6 +28,7 @@ const statusBadge = (status: string) => {
 };
 
 export default function BranchFundRequestsPage() {
+  const { user } = useAuth();
   const [requests, setRequests] = useState<any[]>([]);
   const [totalEntries, setTotalEntries] = useState(0);
   const [statusFilter, setStatusFilter] = useState("");
@@ -33,7 +36,22 @@ export default function BranchFundRequestsPage() {
   const [loading, setLoading] = useState(true);
   const [pendingCount, setPendingCount] = useState(0);
   const [approvedTotal, setApprovedTotal] = useState(0);
+  const [availableFunds, setAvailableFunds] = useState(0);
+  const [branchFilterId, setBranchFilterId] = useState<string | null>(null);
   const perPage = 10;
+  const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+
+  useEffect(() => {
+    if (!isRestricted || !user?.branch) return;
+    (async () => {
+      const { data } = await supabase
+        .from("branches")
+        .select("id")
+        .ilike("name", user.branch)
+        .maybeSingle();
+      if (data?.id) setBranchFilterId(data.id);
+    })();
+  }, [isRestricted, user?.branch]);
 
   useEffect(() => {
     (async () => {
@@ -41,7 +59,8 @@ export default function BranchFundRequestsPage() {
       try {
         const filters: any = { page, pageSize: perPage };
         if (statusFilter) filters.status = statusFilter;
-        const { data, count } = await fetchFundRequests(filters);
+        if (isRestricted && branchFilterId) filters.branch_id = branchFilterId;
+        const { data, count } = await fetchFundRequests({ ...filters, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined });
         setRequests(data);
         setTotalEntries(count);
       } catch {}
@@ -52,10 +71,13 @@ export default function BranchFundRequestsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const { count } = await fetchFundRequests({ status: "pending" });
+        const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
+        const { count } = await fetchFundRequests({ status: "pending", user: userObj });
         setPendingCount(count);
-        const { data } = await fetchFundRequests({ status: "approved", pageSize: 1000 });
+        const { data } = await fetchFundRequests({ status: "approved", pageSize: 1000, user: userObj });
         setApprovedTotal(data.reduce((s: number, r: any) => s + Number(r.amount ?? 0), 0));
+        const total = await getTotalAvailableFunds();
+        setAvailableFunds(Number(total) || 0);
       } catch {}
     })();
   }, []);
@@ -118,7 +140,7 @@ export default function BranchFundRequestsPage() {
               Available Fund
             </p>
           </div>
-          <p className="text-2xl font-bold text-navy-900">₦18,700,000</p>
+          <p className="text-2xl font-bold text-navy-900">₦{availableFunds.toLocaleString()}</p>
           <p className="text-xs text-gray-400 mt-1">
             Central cooperative reserves
           </p>

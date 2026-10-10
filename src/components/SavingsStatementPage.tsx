@@ -1,10 +1,12 @@
 import { useState, useCallback } from "react";
 import { Search, ShieldCheck, Loader2, Download, FileText } from "lucide-react";
 import { fetchMembers, fetchSavingsAccount, fetchSavingsTransactions } from "../lib/db";
+import { useAuth } from "../auth/useAuth";
 
 const periods = ["30d", "3m", "6m", "Custom"] as const;
 
 export default function SavingsStatementPage() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searching, setSearching] = useState(false);
@@ -19,13 +21,14 @@ export default function SavingsStatementPage() {
     if (q.trim().length < 2) { setSearchResults([]); return; }
     setSearching(true);
     try {
-      const { data } = await fetchMembers({ search: q });
+      const userObj = user ? { id: user.id, role: user.role, branch: user.branch } : undefined;
+      const { data } = await fetchMembers({ search: q, user: userObj });
       setSearchResults(data.slice(0, 8));
     } catch { setSearchResults([]); }
     setSearching(false);
-  }, []);
+  }, [user]);
 
-  const selectMember = async (member: any) => {
+  const selectMember = async (member: any, period?: string) => {
     setSelectedMember(member);
     setSearchResults([]);
     setSearch("");
@@ -34,10 +37,11 @@ export default function SavingsStatementPage() {
       const acct = await fetchSavingsAccount(member.id);
       setSavingsAccount(acct);
       const now = new Date();
+      const effectivePeriod = period || activePeriod;
       let dateFrom: string | undefined;
-      if (activePeriod === "30d") dateFrom = new Date(now.getTime() - 30 * 86400000).toISOString();
-      else if (activePeriod === "3m") dateFrom = new Date(now.getTime() - 90 * 86400000).toISOString();
-      else if (activePeriod === "6m") dateFrom = new Date(now.getTime() - 180 * 86400000).toISOString();
+      if (effectivePeriod === "30d") dateFrom = new Date(now.getTime() - 30 * 86400000).toISOString();
+      else if (effectivePeriod === "3m") dateFrom = new Date(now.getTime() - 90 * 86400000).toISOString();
+      else if (effectivePeriod === "6m") dateFrom = new Date(now.getTime() - 180 * 86400000).toISOString();
       const { data } = await fetchSavingsTransactions({ member_id: member.id, date_from: dateFrom });
       setTransactions(data);
     } catch (err) { console.error(err); }
@@ -124,7 +128,7 @@ export default function SavingsStatementPage() {
         <div className="flex items-center justify-between mt-6 mb-6">
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
             {periods.map((p) => (
-              <button key={p} onClick={() => { setActivePeriod(p); selectMember(selectedMember); }}
+              <button key={p} onClick={() => { setActivePeriod(p); selectMember(selectedMember, p); }}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${activePeriod === p ? "bg-navy-900 text-white" : "text-gray-600 hover:text-navy-900"}`}
               >{p}</button>
             ))}

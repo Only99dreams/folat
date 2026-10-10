@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   X,
   Loader2,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   AreaChart,
@@ -31,6 +32,7 @@ import {
 import { supabase } from "../lib/supabase";
 import { fetchDashboardStats, fetchRecentTransactions, fetchLoanApplications, fetchFundRequests, fetchAuditLog, fetchSavingsVsLoansChartData } from "../lib/db";
 import { type UserRole, ROLE_LABELS } from "../auth/types";
+import { useAuth } from "../auth/useAuth";
 
 /* ─── Chart data placeholder (populated from real data) ─── */
 const defaultChartData = [
@@ -124,7 +126,7 @@ function PendingUsersSection() {
     const { data } = await supabase
       .from("profiles")
       .select("id, full_name, email, created_at")
-      .eq("role", "unassigned")
+      .or("role.is.null,role.eq.,role.eq.unassigned")
       .order("created_at", { ascending: false });
     if (data) setPendingUsers(data);
   }, []);
@@ -253,6 +255,7 @@ function PendingUsersSection() {
 
 /* ─── Dashboard Page ─── */
 export default function DashboardPage() {
+  const { user } = useAuth();
   const [stats, setStats] = useState<any>(null);
   const [recentLoans, setRecentLoans] = useState<any[]>([]);
   const [urgentRequests, setUrgentRequests] = useState<any[]>([]);
@@ -270,10 +273,10 @@ export default function DashboardPage() {
       setLoading(true);
       const [dashStats, loans, fundReqs, auditRes, rawChart] = await Promise.all([
         fetchDashboardStats(),
-        fetchLoanApplications({ page: 1, pageSize: 5 }),
+        fetchLoanApplications({ page: 1, pageSize: 5, user: user ? { id: user.id, role: user.role, branch: user.branch } : undefined }),
         fetchFundRequests({ status: "pending", page: 1, pageSize: 3 }),
         fetchAuditLog({ page: 1, pageSize: 5 }),
-        fetchSavingsVsLoansChartData(),
+        fetchSavingsVsLoansChartData(undefined, user ? { id: user.id, role: user.role, branch: user.branch } : undefined),
       ]);
       setStats(dashStats);
       setRecentLoans(loans.data);
@@ -470,12 +473,13 @@ export default function DashboardPage() {
             <h3 className="text-sm font-bold text-navy-900 mb-4">
               Quick Actions
             </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {[
                 { icon: UserPlus, label: "Add Member", to: "/members/add-cooperative" },
                 { icon: CreditCard, label: "Disburse Loan", to: "/loans/new" },
                 { icon: FileBarChart, label: "Gen Report", to: "/reports" },
                 { icon: Send, label: "Bulk SMS", to: "/communication/sms" },
+                { icon: FileSpreadsheet, label: "Combined Records", to: "/reports/combined-records" },
               ].map(({ icon: Icon, label, to }) => (
                 <Link
                   key={label}

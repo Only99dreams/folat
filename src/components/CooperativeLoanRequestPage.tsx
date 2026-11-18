@@ -59,6 +59,7 @@ type StaffDirectoryItem = {
   email?: string;
   job_role?: string;
   guarantor_eligible?: boolean;
+  branch?: { name?: string | null } | null;
 };
 
 export default function CooperativeLoanRequestPage() {
@@ -123,12 +124,12 @@ export default function CooperativeLoanRequestPage() {
   // Auto-select self for staff members — they can only apply for themselves
   const isStaffMember = profile?.role === "staff_member";
 
+  // Guarantor list is company-wide: staff from every branch can guarantee a loan.
   useEffect(() => {
     const loadDirectory = async () => {
       setLoadingStaffDirectory(true);
       try {
         const data = await fetchStaffDirectory({
-          branch_id: branchId || undefined,
           search: directorySearch || undefined,
         });
         setStaffDirectory((data ?? []) as StaffDirectoryItem[]);
@@ -139,7 +140,7 @@ export default function CooperativeLoanRequestPage() {
     };
 
     loadDirectory();
-  }, [branchId, directorySearch]);
+  }, [directorySearch]);
 
   useEffect(() => {
     const loadSecretary = async () => {
@@ -866,7 +867,7 @@ export default function CooperativeLoanRequestPage() {
                 <div>
                   <p className="text-sm font-semibold text-green-900">{guarantor1Name}</p>
                   <p className="text-xs text-green-700">
-                    {guarantor1Staff.staff_id} · {guarantor1Staff.email || "No email"} · {guarantor1Phone || "No phone"}
+                    {guarantor1Staff.staff_id} · {guarantor1Staff.branch?.name || "No branch"} · {guarantor1Staff.email || "No email"} · {guarantor1Phone || "No phone"}
                   </p>
                 </div>
                 <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${guarantor1Staff.guarantor_eligible ? "bg-green-100 text-green-700 border-green-200" : "bg-red-100 text-red-700 border-red-200"}`}>
@@ -884,13 +885,13 @@ export default function CooperativeLoanRequestPage() {
             <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-100">
               <div className="flex items-center gap-2">
                 <Users className="w-4 h-4 text-navy-900" />
-                <p className="text-sm font-semibold text-navy-900">Staff Directory</p>
+                <p className="text-sm font-semibold text-navy-900">Company Staff Directory</p>
               </div>
               <input
                 type="text"
                 value={directorySearch}
                 onChange={(e) => setDirectorySearch(e.target.value)}
-                placeholder="Search by name, ID, email, phone"
+                placeholder="Search all branches by name, ID, email, phone"
                 className="w-full max-w-xs px-3 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-navy-900/20"
               />
             </div>
@@ -900,13 +901,14 @@ export default function CooperativeLoanRequestPage() {
                 <Loader2 className="w-5 h-5 animate-spin text-navy-900" />
               </div>
             ) : staffDirectory.length === 0 ? (
-              <div className="py-8 text-center text-sm text-gray-500">No staff records found for this filter.</div>
+              <div className="py-8 text-center text-sm text-gray-500">No staff records found for this search.</div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-gray-100 text-[10px] uppercase tracking-[0.1em] text-gray-400">
                       <th className="px-4 py-3">Staff</th>
+                      <th className="px-4 py-3">Branch</th>
                       <th className="px-4 py-3">Contact</th>
                       <th className="px-4 py-3">Role</th>
                       <th className="px-4 py-3">Eligibility</th>
@@ -922,6 +924,9 @@ export default function CooperativeLoanRequestPage() {
                           <td className="px-4 py-3">
                             <p className="text-sm font-semibold text-navy-900">{fullName}</p>
                             <p className="text-xs text-gray-400">{staff.staff_id}</p>
+                          </td>
+                          <td className="px-4 py-3 text-xs text-gray-600">
+                            {staff.branch?.name || "-"}
                           </td>
                           <td className="px-4 py-3 text-xs text-gray-600">
                             <p>{staff.email || "No email"}</p>

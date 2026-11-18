@@ -69,6 +69,7 @@ const operations: NavItem[] = [
     permission: "loans.view",
     children: [
       { label: "Applications", path: "/loans", permission: "loans.view" },
+      { label: "Disburse Loans", path: "/loans", permission: "loans.disburse" },
       { label: "New Application", path: "/loans/new", permission: "loans.create", hideFor: ["staff_member"] as string[] },
       { label: "Cooperative Loan", path: "/loans/cooperative-request", permission: "loans.create" },
       { label: "Active Loans", path: "/loans/active", permission: "loans.view" },

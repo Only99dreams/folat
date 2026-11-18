@@ -11,8 +11,11 @@ import {
   SlidersHorizontal,
   MoreVertical,
   Loader2,
+  CreditCard,
+  Save,
+  X,
 } from "lucide-react";
-import { fetchLoanRepayments, fetchBranches } from "../lib/db";
+import { fetchLoanRepayments, fetchBranches, fetchLoanApplications, recordLoanRepayment } from "../lib/db";
 import { useAuth } from "../auth/useAuth";
 import { supabase } from "../lib/supabase";
 import ExportMenu from "./ExportMenu";
@@ -27,7 +30,7 @@ const avatarColors = [
 ];
 
 export default function AllLoanRepaymentsPage() {
-  const { user } = useAuth();
+  const { user, profile, hasPermission } = useAuth();
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [repayments, setRepayments] = useState<any[]>([]);
@@ -36,9 +39,28 @@ export default function AllLoanRepaymentsPage() {
   const [branch, setBranch] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [loading, setLoading] = useState(true);
+  const [eligibleLoans, setEligibleLoans] = useState<any[]>([]);
+  const [approvedAwaitingDisbursement, setApprovedAwaitingDisbursement] = useState(0);
+  const [loadingEligibleLoans, setLoadingEligibleLoans] = useState(false);
+  const [eligibleLoansError, setEligibleLoansError] = useState("");
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
+  const [savingPayment, setSavingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState("");
+  const [paymentSuccess, setPaymentSuccess] = useState("");
+  const [paymentForm, setPaymentForm] = useState({
+    loanId: "",
+    amount: "",
+    paymentMethod: "Cash",
+    paidDate: new Date().toISOString().slice(0, 10),
+    reference: "",
+    notes: "",
+  });
+  const [refreshKey, setRefreshKey] = useState(0);
   const isRestricted = user?.role === "branch_manager" || user?.role === "secretary" || user?.role === "officer";
+  const canRecordRepayment = hasPermission("loans.record_repayment");
   const perPage = 10;
   const totalPages = Math.max(1, Math.ceil(totalResults / perPage));
+  const selectedLoan = eligibleLoans.find((loan) => loan.id === paymentForm.loanId);
 
   useEffect(() => {
     fetchBranches().then(data => setBranches(data)).catch(() => {});
@@ -65,6 +87,77 @@ export default function AllLoanRepaymentsPage() {
       }).catch(() => {}).finally(() => setLoading(false));
   }, [currentPage, branch]);
 
+  useEffect(() => {
+    if (!canRecordRepayment || !user) return;
+    setLoadingEligibleLoans(true);
+    setEligibleLoansError("");
+    fetchLoanApplications({
+      status: ["approved", "disbursed", "active", "overdue", "defaulted"],
+      branch_id: branch || undefined,
+      pageSize: 1000,
+      user: { id: user.id, role: user.role, branch: user.branch },
+    }).then(({ data }) => {
+      const awaitingDisbursement = data.filter((loan) => loan.status === "approved" && !loan.disbursement_date);
+      const payableLoans = data.filter((loan) =>
+        ["disbursed", "active", "overdue", "defaulted"].includes(loan.status)
+        || (loan.status === "approved" && Boolean(loan.disbursement_date))
+      );
+      setApprovedAwaitingDisbursement(awaitingDisbursement.length);
+      setEligibleLoans(payableLoans);
+      setPaymentForm((current) => payableLoans.some((loan) => loan.id === current.loanId)
+        ? current
+        : { ...current, loanId: "" });
+    }).catch((error: any) => {
+      setEligibleLoans([]);
+      setEligibleLoansError(error.message || "Could not load open loans.");
+    }).finally(() => setLoadingEligibleLoans(false));
+  }, [canRecordRepayment, user?.id, user?.role, user?.branch, branch, refreshKey]);
+
+  const handleRecordPayment = async () => {
+    const amount = Number(paymentForm.amount);
+    const balance = Number(selectedLoan?.outstanding_balance ?? selectedLoan?.total_repayable ?? 0);
+    if (!profile || !selectedLoan?.member_id) {
+      setPaymentError("Select a loan with a linked member.");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0 || amount > balance) {
+      setPaymentError(`Enter an amount greater than zero and no more than ₦${balance.toLocaleString()}.`);
+      return;
+    }
+    if (!paymentForm.paidDate || !paymentForm.paymentMethod) {
+      setPaymentError("Select a payment date and method.");
+      return;
+    }
+
+    setSavingPayment(true);
+    setPaymentError("");
+    setPaymentSuccess("");
+    try {
+      await recordLoanRepayment({
+        loan_id: selectedLoan.id,
+        member_id: selectedLoan.member_id,
+        amount,
+        payment_method: paymentForm.paymentMethod,
+        paid_date: paymentForm.paidDate,
+        reference: paymentForm.reference,
+        notes: paymentForm.notes,
+        recorded_by: profile.id,
+      });
+      setPaymentForm((current) => ({ ...current, amount: "", reference: "", notes: "" }));
+      setShowPaymentForm(false);
+      setPaymentSuccess(`Payment recorded for ${selectedLoan.loan_id}.`);
+      setRefreshKey((value) => value + 1);
+      setCurrentPage(1);
+      const { data, count } = await fetchLoanRepayments({ page: 1, pageSize: perPage, branch_id: branch || undefined });
+      setRepayments(data);
+      setTotalResults(count);
+    } catch (error: any) {
+      setPaymentError(error.message || "Failed to record repayment.");
+    } finally {
+      setSavingPayment(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* ─── Global Search ─── */}
@@ -90,12 +183,107 @@ export default function AllLoanRepaymentsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {canRecordRepayment && (
+            <button
+              type="button"
+              onClick={() => { setShowPaymentForm((visible) => !visible); setPaymentError(""); }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-700 text-white rounded-lg text-sm font-semibold hover:bg-green-800"
+            >
+              <CreditCard className="w-4 h-4" />
+              Record Payment
+            </button>
+          )}
           <span className="text-xs text-gray-400 font-semibold tracking-wide uppercase">
             Export Data:
           </span>
           <ExportMenu data={() => repayments.map((r: any) => ({ LoanID: r.loan?.loan_id || '', Member: (r.loan?.member?.first_name || '') + ' ' + (r.loan?.member?.last_name || ''), Amount: r.amount, Method: r.payment_method, Date: r.paid_date, Reference: r.reference || '' }))} filename="loan_repayments" label="Export" className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-sm font-medium text-navy-900 hover:bg-gray-50 transition-colors" />
         </div>
       </div>
+
+      {paymentSuccess && <p role="status" className="text-sm text-green-700">{paymentSuccess}</p>}
+      {showPaymentForm && canRecordRepayment && (
+        <section className="bg-white rounded-xl border border-gray-100 p-6">
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-base font-bold text-navy-900">Record Manual Loan Payment</h2>
+              <p className="text-sm text-gray-500 mt-1">Post a member payment to the loan ledger and repayment schedule.</p>
+            </div>
+            <button type="button" onClick={() => setShowPaymentForm(false)} aria-label="Close payment form" className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <label className="text-sm font-medium text-navy-900 sm:col-span-2 lg:col-span-1">
+              Loan
+              <select value={paymentForm.loanId} disabled={loadingEligibleLoans || Boolean(eligibleLoansError)} onChange={(event) => setPaymentForm((current) => ({ ...current, loanId: event.target.value, amount: "" }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white disabled:bg-gray-50">
+                <option value="">{loadingEligibleLoans ? "Loading open loans..." : eligibleLoansError ? "Loans unavailable" : eligibleLoans.length ? "Select an open loan" : "No open loans available"}</option>
+                {eligibleLoans.map((loan) => {
+                  const member = Array.isArray(loan.member) ? loan.member[0] : loan.member;
+                  const balance = Number(loan.outstanding_balance ?? loan.total_repayable ?? 0);
+                  return <option key={loan.id} value={loan.id}>{loan.loan_id} | {member ? `${member.first_name} ${member.last_name}` : "Member"} | Balance ₦{balance.toLocaleString()}</option>;
+                })}
+              </select>
+            </label>
+            {selectedLoan && (() => {
+              const member = Array.isArray(selectedLoan.member) ? selectedLoan.member[0] : selectedLoan.member;
+              const details = [
+                ["Member", member ? `${member.first_name} ${member.last_name} (${member.member_id || "No member ID"})` : "Member details unavailable"],
+                ["Loan type", selectedLoan.loan_type || "—"],
+                ["Principal", `₦${Number(selectedLoan.amount_approved ?? selectedLoan.amount_requested ?? 0).toLocaleString()}`],
+                ["Total repayable", `₦${Number(selectedLoan.total_repayable ?? 0).toLocaleString()}`],
+                ["Scheduled installment", `₦${Number(selectedLoan.monthly_repayment ?? 0).toLocaleString()}`],
+                ["Outstanding balance", `₦${Number(selectedLoan.outstanding_balance ?? selectedLoan.total_repayable ?? 0).toLocaleString()}`],
+              ];
+              return (
+                <div className="sm:col-span-2 lg:col-span-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 rounded-lg bg-gray-50 border border-gray-100 p-4">
+                  {details.map(([label, value]) => (
+                    <label key={label} className="text-xs font-semibold text-gray-500">
+                      {label}
+                      <input readOnly tabIndex={-1} value={value} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm font-normal text-gray-700 bg-white cursor-default" />
+                    </label>
+                  ))}
+                </div>
+              );
+            })()}
+            <label className="text-sm font-medium text-navy-900">
+              Amount received (₦)
+              <input type="number" min="0.01" max={selectedLoan ? Number(selectedLoan.outstanding_balance ?? selectedLoan.total_repayable ?? 0) : undefined} step="0.01" value={paymentForm.amount} onChange={(event) => setPaymentForm((current) => ({ ...current, amount: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <label className="text-sm font-medium text-navy-900">
+              Payment method
+              <select value={paymentForm.paymentMethod} onChange={(event) => setPaymentForm((current) => ({ ...current, paymentMethod: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm bg-white">
+                <option>Cash</option>
+                <option>Bank Transfer</option>
+                <option>Mobile Money</option>
+                <option>Direct Debit</option>
+                <option>Cheque</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-navy-900">
+              Payment date
+              <input type="date" value={paymentForm.paidDate} onChange={(event) => setPaymentForm((current) => ({ ...current, paidDate: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <label className="text-sm font-medium text-navy-900">
+              Reference
+              <input type="text" value={paymentForm.reference} onChange={(event) => setPaymentForm((current) => ({ ...current, reference: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <label className="text-sm font-medium text-navy-900 sm:col-span-2">
+              Notes
+              <textarea rows={2} value={paymentForm.notes} onChange={(event) => setPaymentForm((current) => ({ ...current, notes: event.target.value }))} className="mt-1.5 w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm resize-y" />
+            </label>
+          </div>
+          {eligibleLoansError && <p role="alert" className="mt-4 text-sm text-red-600">{eligibleLoansError}</p>}
+          {!loadingEligibleLoans && !eligibleLoansError && eligibleLoans.length === 0 && approvedAwaitingDisbursement > 0 && <p className="mt-4 text-sm text-amber-700">{approvedAwaitingDisbursement} loan(s) are approved but not disbursed yet. They cannot receive repayments until disbursement is recorded.</p>}
+          {!loadingEligibleLoans && !eligibleLoansError && eligibleLoans.length === 0 && approvedAwaitingDisbursement === 0 && <p className="mt-4 text-sm text-gray-500">There are no disbursed loans with a balance available for repayment.</p>}
+          {paymentError && <p role="alert" className="mt-4 text-sm text-red-600">{paymentError}</p>}
+          <div className="flex justify-end mt-5">
+            <button type="button" disabled={savingPayment || loadingEligibleLoans || eligibleLoans.length === 0} onClick={handleRecordPayment} className="inline-flex items-center gap-2 px-4 py-2.5 bg-navy-900 text-white rounded-lg text-sm font-semibold disabled:opacity-50">
+              {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {savingPayment ? "Saving..." : "Save Payment"}
+            </button>
+          </div>
+        </section>
+      )}
 
       {/* ─── Stat Cards ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

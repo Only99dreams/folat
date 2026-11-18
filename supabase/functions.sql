@@ -46,6 +46,12 @@ BEGIN
 END;
 $$;
 
+ALTER TABLE public.loan_applications
+  DROP CONSTRAINT IF EXISTS loan_applications_status_check;
+ALTER TABLE public.loan_applications
+  ADD CONSTRAINT loan_applications_status_check
+  CHECK (status IN ('pending','under_review','approved','rejected','disbursed','active','overdue','completed','defaulted','written_off'));
+
 CREATE OR REPLACE FUNCTION public.validate_external_member_group()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -435,18 +441,13 @@ RETURNS TABLE (
 $$;
 
 -- ============================================================================
--- PAYROLL DEDUCTIONS (MANUAL)
+-- PAYROLL DEDUCTIONS
 -- ============================================================================
--- This batch function processes monthly salary deductions for active staff.
--- Savings deductions are NO LONGER automatic — they must be triggered manually.
--- Loan repayments are still processed automatically when this function is called.
+-- Loan repayments are posted automatically at month-end for staff loans.
+-- Savings deductions remain manual and are not included in the scheduled job.
 --
--- TO RUN MANUALLY (when ready to process deductions for a month):
+-- TO RUN MANUALLY (for a month-end catch-up):
 --    SELECT * FROM public.process_all_monthly_deductions(DATE_TRUNC('month', CURRENT_DATE)::date);
---
--- NOTE: The old automatic cron job has been removed. If it still exists in your
--- database, unschedule it with:
---    SELECT cron.unschedule('monthly-salary-deductions');
 -- ============================================================================
 
 -- Batch process monthly salary deductions for all active staff
@@ -468,10 +469,16 @@ DECLARE
   v_loan_payment numeric;
   v_member_id uuid;
   v_deduction_id uuid;
+  v_month date;
+  v_paid_date date;
   v_total_staff bigint := 0;
   v_total_savings numeric := 0;
   v_total_loan_repayments numeric := 0;
 BEGIN
+  v_month := date_trunc('month', coalesce(p_month, current_date))::date;
+  v_paid_date := (now() AT TIME ZONE 'Africa/Lagos')::date;
+  PERFORM pg_advisory_xact_lock(hashtextextended('monthly-loan-repayments:' || v_month::text, 0));
+
   FOR v_staff IN 
     SELECT * FROM public.staff WHERE employment_status = 'active'
   LOOP
@@ -507,12 +514,42 @@ BEGIN
     END IF;
 
     IF v_loan_deduction > 0 THEN
-      INSERT INTO public.salary_deductions (
-        staff_id, member_id, deduction_type, amount, month, status, reference
-      ) VALUES (
-        v_staff.id, v_member_id, 'loan_repayment', v_loan_deduction, p_month, 'processed',
-        public.generate_deduction_id()
-      ) RETURNING id INTO v_deduction_id;
+      IF EXISTS (
+        SELECT 1 FROM public.salary_deductions
+        WHERE staff_id = v_staff.id
+          AND deduction_type = 'loan_repayment'
+          AND month = v_month
+          AND status = 'processed'
+      ) THEN
+        CONTINUE;
+      END IF;
+
+      SELECT id INTO v_deduction_id
+      FROM public.salary_deductions
+      WHERE staff_id = v_staff.id
+        AND deduction_type = 'loan_repayment'
+        AND month = v_month
+        AND status = 'pending'
+      ORDER BY created_at DESC
+      LIMIT 1
+      FOR UPDATE;
+
+      IF v_deduction_id IS NOT NULL THEN
+        UPDATE public.salary_deductions
+        SET member_id = v_member_id,
+            amount = v_loan_deduction,
+            status = 'processed',
+            processed_at = now(),
+            notes = 'Automatically processed month-end loan repayment'
+        WHERE id = v_deduction_id;
+      ELSE
+        INSERT INTO public.salary_deductions (
+          staff_id, member_id, deduction_type, amount, month, status, processed_at, reference, notes
+        ) VALUES (
+          v_staff.id, v_member_id, 'loan_repayment', v_loan_deduction, v_month, 'processed', now(),
+          public.generate_deduction_id(), 'Automatically processed month-end loan repayment'
+        ) RETURNING id INTO v_deduction_id;
+      END IF;
       
       v_remaining_deduction := v_loan_deduction;
       FOR v_loan IN
@@ -534,8 +571,8 @@ BEGIN
             v_deduction_id::text,
             'Monthly salary deduction',
             NULL,
-            p_month,
-            'REP-' || to_char(p_month, 'YYYYMMDD') || '-' || lpad((floor(random() * 9000)::integer + 1000)::text, 4, '0')
+            v_paid_date,
+            'REP-' || to_char(v_paid_date, 'YYYYMMDD') || '-' || lpad((floor(random() * 9000)::integer + 1000)::text, 4, '0')
           );
           v_remaining_deduction := v_remaining_deduction - v_loan_payment;
         END IF;
@@ -557,6 +594,9 @@ BEGIN
     v_total_savings + v_total_loan_repayments;
 END;
 $$;
+
+REVOKE ALL ON FUNCTION public.process_all_monthly_deductions(date) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.process_all_monthly_deductions(date) TO service_role;
 
 -- Record a loan repayment atomically across the payment ledger, schedule, and loan balance.
 CREATE OR REPLACE FUNCTION public.record_loan_repayment(
@@ -616,7 +656,8 @@ BEGIN
   IF v_loan.member_id IS DISTINCT FROM p_member_id THEN
     RAISE EXCEPTION 'The selected member does not match this loan.';
   END IF;
-  IF v_loan.status NOT IN ('disbursed', 'active', 'overdue') THEN
+    IF v_loan.status NOT IN ('disbursed', 'active', 'overdue', 'defaulted')
+      AND NOT (v_loan.status = 'approved' AND v_loan.disbursement_date IS NOT NULL) THEN
     RAISE EXCEPTION 'Only disbursed loans can receive repayments.';
   END IF;
 
@@ -701,7 +742,14 @@ BEGIN
 
   UPDATE public.loan_applications
   SET outstanding_balance = v_outstanding_after,
-      status = CASE WHEN v_outstanding_after = 0 THEN 'completed' ELSE status END,
+      status = CASE
+        WHEN v_outstanding_after = 0 THEN 'completed'
+        WHEN v_loan.status = 'overdue' AND NOT EXISTS (
+          SELECT 1 FROM public.loan_schedule
+          WHERE loan_id = p_loan_id AND status = 'overdue' AND amount_paid < total_due
+        ) THEN 'disbursed'
+        ELSE v_loan.status
+      END,
       updated_at = now()
   WHERE id = p_loan_id;
 
@@ -722,3 +770,80 @@ $$;
 
 REVOKE ALL ON FUNCTION public.record_loan_repayment(uuid, uuid, numeric, text, text, text, uuid, date, text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.record_loan_repayment(uuid, uuid, numeric, text, text, text, uuid, date, text) TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.run_month_end_loan_repayments()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_local_date date := (now() AT TIME ZONE 'Africa/Lagos')::date;
+BEGIN
+  IF v_local_date + 1 <> (date_trunc('month', v_local_date)::date + interval '1 month')::date THEN
+    RETURN;
+  END IF;
+
+  PERFORM * FROM public.process_all_monthly_deductions(date_trunc('month', v_local_date)::date);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.run_month_end_loan_repayments() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.run_month_end_loan_repayments() TO service_role;
+
+CREATE OR REPLACE FUNCTION public.refresh_overdue_loan_status()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_local_date date := (now() AT TIME ZONE 'Africa/Lagos')::date;
+BEGIN
+  UPDATE public.loan_schedule
+  SET status = 'overdue'
+  WHERE status IN ('pending', 'partial') AND due_date < v_local_date;
+
+  UPDATE public.loan_applications AS loan
+  SET status = 'overdue', updated_at = now()
+  WHERE loan.status IN ('disbursed', 'active')
+    AND EXISTS (
+      SELECT 1 FROM public.loan_schedule AS schedule
+      WHERE schedule.loan_id = loan.id
+        AND schedule.status = 'overdue'
+        AND schedule.amount_paid < schedule.total_due
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.refresh_overdue_loan_status() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.refresh_overdue_loan_status() TO service_role;
+
+-- pg_cron uses UTC. These times run at 23:55 and 00:00 Africa/Lagos.
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
+
+DO $schedule$
+DECLARE
+  v_job_id bigint;
+BEGIN
+  SELECT jobid INTO v_job_id FROM cron.job WHERE jobname = 'month-end-loan-repayments';
+  IF v_job_id IS NOT NULL THEN
+    PERFORM cron.unschedule(v_job_id);
+  END IF;
+  PERFORM cron.schedule(
+    'month-end-loan-repayments',
+    '55 22 * * *',
+    'SELECT public.run_month_end_loan_repayments();'
+  );
+
+  SELECT jobid INTO v_job_id FROM cron.job WHERE jobname = 'daily-overdue-loan-status';
+  IF v_job_id IS NOT NULL THEN
+    PERFORM cron.unschedule(v_job_id);
+  END IF;
+  PERFORM cron.schedule(
+    'daily-overdue-loan-status',
+    '0 23 * * *',
+    'SELECT public.refresh_overdue_loan_status();'
+  );
+END;
+$schedule$;

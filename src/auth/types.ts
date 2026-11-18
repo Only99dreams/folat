@@ -110,6 +110,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   ],
   staff_member: [
     "loans.view", "loans.create",
+    "savings.transactions",
     "communication.messages",
     "hr.leave_requests",
   ],

@@ -665,7 +665,7 @@ export async function fetchLoanApplications(filters?: {
 }) {
   let query = supabase
     .from("loan_applications")
-    .select("id, loan_id, amount_requested, amount_approved, monthly_repayment, total_repayable, interest_rate, duration_months, disbursement_date, first_installment_date, loan_type, status, created_at, outstanding_balance, guarantor1_name, guarantor1_approval_status, guarantor2_name, guarantor2_approval_status, member:members(first_name, last_name, member_id), branch:branches(name), officer:profiles!loan_applications_credit_officer_id_fkey(full_name)", { count: "exact" })
+    .select("id, loan_id, member_id, amount_requested, amount_approved, monthly_repayment, total_repayable, interest_rate, duration_months, disbursement_date, first_installment_date, loan_type, status, created_at, outstanding_balance, guarantor1_name, guarantor1_approval_status, guarantor2_name, guarantor2_approval_status, member:members(first_name, last_name, member_id), branch:branches(name), officer:profiles!loan_applications_credit_officer_id_fkey(full_name)", { count: "exact" })
     .order("created_at", { ascending: false });
 
   // Role-based filtering
@@ -960,6 +960,27 @@ export async function approveLoan(id: string, approvedBy: string, notes: string,
     }
   }
 
+  // Notify finance officers and super admins about pending disbursement
+  try {
+    const { data: financeUsers } = await supabase
+      .from("profiles")
+      .select("id, role")
+      .in("role", ["finance_officer", "super_admin"]);
+    if (financeUsers && financeUsers.length > 0) {
+      const notifications = financeUsers.map((u) => ({
+        user_id: u.id,
+        title: "Loan Approved - Pending Disbursement",
+        body: `Loan ${loan.loan_id} for ${loan.member?.first_name || ""} ${loan.member?.last_name || ""} has been approved for ₦${Number(approved).toLocaleString()} and is ready for disbursement.`,
+        type: "warning",
+        link: "/loans",
+        is_read: false,
+      }));
+      await supabase.from("notifications").insert(notifications);
+    }
+  } catch (notifyErr) {
+    console.error("Failed to send disbursement notifications:", notifyErr);
+  }
+
   await logAudit("approve", "loan_application", id, { amount_approved: approved });
   return data;
 }
@@ -1049,6 +1070,25 @@ export async function disburseLoan(id: string, disbursementDate: string, disburs
       const totalMonthlyRepayment = (activeLoans ?? []).reduce((sum, l) => sum + Number(l.monthly_repayment || 0), 0);
       await supabase.from("staff").update({ loan_repayment_amount: totalMonthlyRepayment }).eq("id", memberData.staff_id);
     }
+  }
+
+  // Notify member
+  try {
+    if (loan.member?.id || data?.member_id) {
+      const memberId = data?.member_id || loan.member?.id;
+      const { data: profileData } = await supabase.from("members").select("profile_id, email, first_name, last_name").eq("id", memberId).maybeSingle();
+      if (profileData?.profile_id) {
+        await createNotification({
+          user_id: profileData.profile_id,
+          title: "Loan Disbursed",
+          body: `Your loan ${loan.loan_id} has been disbursed on ${disbursementDate}. Funds will be available as per cooperative policy.`,
+          type: "success",
+          link: `/loans/${id}`,
+        });
+      }
+    }
+  } catch (notifyErr) {
+    console.error("Failed to send disbursement notification to member:", notifyErr);
   }
 
   await logAudit("disburse", "loan_application", id, { amount, disbursement_date: disbursementDate, disbursed_by: disbursedBy });
